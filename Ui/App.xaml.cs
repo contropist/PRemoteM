@@ -1,6 +1,9 @@
 ﻿using System;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
+using _1RM.Utils;
 
 namespace _1RM
 {
@@ -10,13 +13,23 @@ namespace _1RM
 
         protected override void OnStartup(StartupEventArgs e)
         {
-            Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory); // in case user start app in a different working dictionary.
+            MsAppCenterHelper.Init(Assert.MS_APP_CENTER_SECRET);
+
+            AppInit.InitOnStartup();
             ResourceDictionary = this.Resources;
             base.OnStartup(e);
         }
 
+        public static bool ExitingFlag = false;
         public static void Close(int exitCode = 0)
         {
+            // workaround
+            Task.Factory.StartNew(() =>
+            {
+                Thread.Sleep(5 * 1000);
+                Environment.Exit(1);
+            });
+            ExitingFlag = true;
             Application.Current.Dispatcher.Invoke(() =>
             {
                 Application.Current.Shutdown(exitCode);

@@ -3,6 +3,8 @@ using System.Windows.Controls;
 using _1RM.Controls.NoteDisplay;
 using _1RM.Model;
 using _1RM.View;
+using _1RM.View.ServerList;
+using Shawn.Utils;
 
 namespace _1RM.Controls
 {
@@ -16,9 +18,9 @@ namespace _1RM.Controls
         {
             var value = (ProtocolBaseViewModel)e.NewValue;
             ((ServerCardItem)d).DataContext = value;
-            if (value?.HoverNoteDisplayControl is NoteIcon ni)
+            if (value?.HoverNoteDisplayControl != null)
             {
-                ni.IsBriefNoteShown = false;
+                value.HoverNoteDisplayControl.IsBriefNoteShown = false;
             }
         }
 
@@ -39,7 +41,7 @@ namespace _1RM.Controls
 
         private void BtnSettingMenu_OnClick(object sender, RoutedEventArgs e)
         {
-            ProtocolBaseViewModel.Actions = ProtocolBaseViewModel.Server.GetActions();
+            ProtocolBaseViewModel.Actions = ProtocolBaseViewModel.GetActions();
             PopupCardSettingMenu.IsOpen = true;
         }
 
@@ -50,6 +52,11 @@ namespace _1RM.Controls
                 afs.Run();
             }
             PopupCardSettingMenu.IsOpen = false;
+        }
+
+        private void ItemsCheckBox_OnClick(object sender, RoutedEventArgs e)
+        {
+            ServerListPageView.ItemsCheckBox_OnClick_Static(sender, e);
         }
     }
 }

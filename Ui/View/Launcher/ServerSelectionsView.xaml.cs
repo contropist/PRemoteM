@@ -27,65 +27,64 @@ namespace _1RM.View.Launcher
     /// </summary>
     public partial class ServerSelectionsView : UserControl
     {
-        private readonly ServerSelectionsViewModel _vm;
-        private readonly LauncherWindowViewModel _lvm;
-        public ServerSelectionsView(ServerSelectionsViewModel vm, LauncherWindowViewModel lvm)
+        public ServerSelectionsView()
         {
-            _vm = vm;
-            _lvm = lvm;
             InitializeComponent();
         }
 
 
         private void MenuActions(Key key)
         {
+            if (IoC.Get<LauncherWindowViewModel>().View is LauncherWindowView { IsClosing: true }) return;
+            if (this.DataContext is not ServerSelectionsViewModel vm) return;
+
             switch (key)
             {
                 case Key.Enter:
-                    if (_vm.Actions.Count > 0
-                        && _vm.SelectedActionIndex >= 0
-                        && _vm.SelectedActionIndex < _vm.Actions.Count)
+                    if (vm.Actions.Count > 0
+                        && vm.SelectedActionIndex >= 0
+                        && vm.SelectedActionIndex < vm.Actions.Count)
                     {
-                        if (_vm?.SelectedItem?.Server?.Id == null)
+                        if (vm?.SelectedItem?.Server?.Id == null)
                             return;
-                        var si = _vm.SelectedActionIndex;
-                        _lvm.HideMe();
-                        _vm.Actions[si]?.Run();
+                        var si = vm.SelectedActionIndex;
+                        IoC.Get<LauncherWindowViewModel>().HideMe();
+                        vm.Actions[si]?.Run();
                     }
                     break;
 
                 case Key.Down:
-                    if (_vm.SelectedActionIndex < _vm.Actions.Count - 1)
+                    if (vm.SelectedActionIndex < vm.Actions.Count - 1)
                     {
-                        ++_vm.SelectedActionIndex;
+                        ++vm.SelectedActionIndex;
                         ListBoxActions.ScrollIntoView(ListBoxActions.SelectedItem);
                     }
                     break;
 
                 case Key.Up:
-                    if (_vm.SelectedActionIndex > 0)
+                    if (vm.SelectedActionIndex > 0)
                     {
-                        --_vm.SelectedActionIndex;
+                        --vm.SelectedActionIndex;
                         ListBoxActions.ScrollIntoView(ListBoxActions.SelectedItem);
                     }
                     break;
 
                 case Key.PageUp:
-                    if (_vm.SelectedActionIndex > 0)
+                    if (vm.SelectedActionIndex > 0)
                     {
-                        _vm.SelectedActionIndex =
-                            _vm.SelectedActionIndex - 5 < 0 ? 0 : _vm.SelectedActionIndex - 5;
+                        vm.SelectedActionIndex =
+                            vm.SelectedActionIndex - 5 < 0 ? 0 : vm.SelectedActionIndex - 5;
                         ListBoxActions.ScrollIntoView(ListBoxActions.SelectedItem);
                     }
                     break;
 
                 case Key.PageDown:
-                    if (_vm.SelectedActionIndex < _vm.Actions.Count - 1)
+                    if (vm.SelectedActionIndex < vm.Actions.Count - 1)
                     {
-                        _vm.SelectedActionIndex =
-                            _vm.SelectedActionIndex + 5 > _vm.Actions.Count - 1
-                                ? _vm.Actions.Count - 1
-                                : _vm.SelectedActionIndex + 5;
+                        vm.SelectedActionIndex =
+                            vm.SelectedActionIndex + 5 > vm.Actions.Count - 1
+                                ? vm.Actions.Count - 1
+                                : vm.SelectedActionIndex + 5;
                         ListBoxActions.ScrollIntoView(ListBoxActions.SelectedItem);
                     }
                     break;
@@ -98,6 +97,8 @@ namespace _1RM.View.Launcher
 
         private void TbKeyWord_OnPreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if (IoC.Get<LauncherWindowViewModel>().View is LauncherWindowView { IsClosing: true }) return;
+            if (this.DataContext is not ServerSelectionsViewModel vm) return;
             if (Visibility != Visibility.Visible) return;
 
             if (TbKeyWord.IsKeyboardFocused == false)
@@ -110,11 +111,11 @@ namespace _1RM.View.Launcher
 
                 if (key == Key.Escape)
                 {
-                    _lvm.HideMe();
+                    IoC.Get<LauncherWindowViewModel>().HideMe();
                     return;
                 }
 
-                if (GridMenuActions.Visibility == Visibility.Visible)
+                if (GridActionsList.Visibility == Visibility.Visible)
                 {
                     MenuActions(key);
                 }
@@ -147,16 +148,16 @@ namespace _1RM.View.Launcher
                             return;
                         case Key.Left:
                             if (IoC.Get<ConfigurationService>().Launcher.ShowNoteFieldInLauncher == false)
-                                _vm.CmdShowNoteField?.Execute();
+                                vm.CmdShowNoteField?.Execute();
                             else
-                                _vm.CmdHideNoteField?.Execute();
+                                vm.CmdHideNoteField?.Execute();
                             return;
                         case Key.PageUp:
                             AddSelectedIndexOnVisibilityItems(-5);
                             return;
 
                         case Key.Tab:
-                            _lvm.ToggleQuickConnection();
+                            IoC.Get<LauncherWindowViewModel>().ToggleQuickConnection();
                             return;
                     }
                     e.Handled = false;
@@ -164,19 +165,15 @@ namespace _1RM.View.Launcher
             }
         }
 
-        private void ListBoxSelections_OnMouseDoubleClick(object sender, MouseButtonEventArgs e)
-        {
-            if (e.ClickCount == 2)
-                OpenSessionAndHide();
-        }
 
 
         private void ListBoxSelections_OnMouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
+            if (IoC.Get<LauncherWindowViewModel>().View is LauncherWindowView { IsClosing: true }) return;
             // 鼠标右键打开菜单时，SelectedIndex 还未改变，打开的菜单实际是上一个选中项目的菜单，可以通过listbox item 中绑定右键action来修复，也可以向上搜索虚拟树找到右键时所选的项
             if (MyVisualTreeHelper.VisualUpwardSearch<ListBoxItem>(e.OriginalSource as DependencyObject) is ListBoxItem { Content: ProtocolBaseViewModel baseViewModel })
             {
-                ShowActionsList(baseViewModel.Server);
+                ShowActionsList(baseViewModel);
             }
         }
 
@@ -189,83 +186,119 @@ namespace _1RM.View.Launcher
 
         private void ListBoxActions_OnMouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
-            if (_vm?.SelectedItem?.Server?.Id == null)
-                return;
-            var si = _vm.SelectedActionIndex;
-            _lvm.HideMe();
-            if (_vm.Actions.Count > 0
+            if (IoC.Get<LauncherWindowViewModel>().View is LauncherWindowView { IsClosing: true }) return;
+            if (this.DataContext is not ServerSelectionsViewModel vm) return;
+            if (vm?.SelectedItem?.Server?.Id == null) return;
+
+            var si = vm.SelectedActionIndex;
+            IoC.Get<LauncherWindowViewModel>().HideMe();
+            if (vm.Actions.Count > 0
                 && si >= 0
-                && si < _vm.Actions.Count)
+                && si < vm.Actions.Count)
             {
-                _vm.Actions[si]?.Run();
+                vm.Actions[si]?.Run();
             }
         }
 
         private void ButtonActionBack_OnMouseDown(object sender, MouseButtonEventArgs e)
         {
+            if (IoC.Get<LauncherWindowViewModel>().View is LauncherWindowView { IsClosing: true }) return;
             HideActionsList();
         }
 
 
 
-        public void ShowActionsList(ProtocolBase? protocolBase = null)
+        public void ShowActionsList(ProtocolBaseViewModel? protocol = null)
         {
-            if (protocolBase == null)
+            if (IoC.Get<LauncherWindowViewModel>().View is LauncherWindowView { IsClosing: true }) return;
+            if (this.DataContext is not ServerSelectionsViewModel vm) return;
+
+            if (protocol == null)
             {
-                if (_vm.SelectedIndex < 0
-                    || _vm.SelectedIndex >= _vm.VmServerList.Count)
+                if (vm.SelectedIndex < 0
+                    || vm.SelectedIndex >= vm.VmServerList.Count)
                 {
                     return;
                 }
-                protocolBase = _vm.VmServerList[_vm.SelectedIndex].Server;
+                protocol = vm.VmServerList[vm.SelectedIndex];
             }
 
-            _vm.Actions = new ObservableCollection<ProtocolAction>(protocolBase.GetActions());
-            _vm.SelectedActionIndex = 0;
+            vm.Actions = new ObservableCollection<ProtocolAction>(protocol.GetActions());
+            vm.SelectedActionIndex = 0;
 
-            _lvm.ReSetWindowHeight(true);
-
-            GridMenuActions.Visibility = Visibility.Visible;
+            GridActionsList.Visibility = Visibility.Visible;
+            IoC.Get<LauncherWindowViewModel>().ReSetWindowHeight();
 
             var sb = new Storyboard();
             sb.AddSlideFromLeft(0.3, LauncherWindowViewModel.LAUNCHER_LIST_AREA_WIDTH);
-            sb.Begin(GridMenuActions);
+            sb.Begin(GridActionsList);
         }
-
 
 
         public void HideActionsList()
         {
+            if (IoC.Get<LauncherWindowViewModel>().View is LauncherWindowView { IsClosing: true }) return;
             var sb = new Storyboard();
             sb.AddSlideToLeft(0.3, LauncherWindowViewModel.LAUNCHER_LIST_AREA_WIDTH);
             sb.Completed += (o, args) =>
             {
-                GridMenuActions.Visibility = Visibility.Hidden;
-                _lvm.ReSetWindowHeight(false);
+                GridActionsList.Visibility = Visibility.Hidden;
+                IoC.Get<LauncherWindowViewModel>().ReSetWindowHeight();
             };
-            sb.Begin(GridMenuActions);
+            sb.Begin(GridActionsList);
         }
 
 
         public void OpenSessionAndHide()
         {
-            var item = _vm.SelectedItem;
-            _lvm.HideMe();
+            if (IoC.Get<LauncherWindowViewModel>().View is LauncherWindowView { IsClosing: true }) return;
+            if (this.DataContext is not ServerSelectionsViewModel vm) return;
+
+            var item = vm.SelectedItem;
+            IoC.Get<LauncherWindowViewModel>().HideMe();
             if (item?.Id != null)
             {
-                GlobalEventHelper.OnRequestServerConnect?.Invoke(item.Id);
+                GlobalEventHelper.OnRequestServerConnect?.Invoke(item.Server, fromView: $"{nameof(LauncherWindowView)} - {nameof(ServerSelectionsView)}");
             }
         }
 
 
         public void AddSelectedIndexOnVisibilityItems(int step)
         {
-            var index = _vm.SelectedIndex + step;
+            if (IoC.Get<LauncherWindowViewModel>().View is LauncherWindowView { IsClosing: true }) return;
+            if (this.DataContext is not ServerSelectionsViewModel vm) return;
+
+            var index = vm.SelectedIndex + step;
             if (index < 0)
                 index = 0;
-            if (index >= _vm.VmServerList.Count)
-                index = _vm.VmServerList.Count - 1;
-            _vm.SelectedIndex = index;
+            if (index >= vm.VmServerList.Count)
+                index = vm.VmServerList.Count - 1;
+            vm.SelectedIndex = index;
+        }
+
+        private void ListBoxSelections_OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (IoC.Get<LauncherWindowViewModel>().View is LauncherWindowView { IsClosing: true }) return;
+            if (this.DataContext is not ServerSelectionsViewModel vm) return;
+
+            if (e.ClickCount == 2)
+                OpenSessionAndHide();
+        }
+
+        private void ButtonShowNote_OnClick(object sender, RoutedEventArgs e)
+        {
+            if (IoC.Get<LauncherWindowViewModel>().View is LauncherWindowView { IsClosing: true }) return;
+            if (this.DataContext is not ServerSelectionsViewModel vm) return;
+
+            if (sender is Button { Tag: string id })
+            {
+                var s = vm.VmServerList.FirstOrDefault(x => x.Id == id);
+                if (s != null)
+                {
+                    vm.SelectedIndex = vm.VmServerList.IndexOf(s);
+                }
+            }
+            vm.CmdShowNoteField.Execute();
         }
     }
 }

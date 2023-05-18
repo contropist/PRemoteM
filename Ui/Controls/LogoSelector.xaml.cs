@@ -9,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using _1RM.Utils;
 using Microsoft.Win32;
 using Shawn.Utils;
 using Shawn.Utils.Interface;
@@ -376,14 +377,18 @@ namespace _1RM.Controls
             var path = SelectFileHelper.OpenFile(title: IoC.Get<ILanguageService>().Translate("logo_selector_open_file_dialog_title"), filter: "image|*.jpg;*.png;*.bmp;*.ico;*.exe|all files|*.*");
             if (path != null)
             {
+                MsAppCenterHelper.TraceSpecial("SessionLogo", "");
                 if (path.EndsWith(".exe", true, null))
                 {
                     using var icon = System.Drawing.Icon.ExtractAssociatedIcon(path);
-                    var img = Imaging.CreateBitmapSourceFromHIcon(
-                        icon.Handle,
-                        new Int32Rect(0, 0, icon.Width, icon.Height),
-                        BitmapSizeOptions.FromEmptyOptions());
-                    SetImg(img);
+                    if (icon != null)
+                    {
+                        var img = Imaging.CreateBitmapSourceFromHIcon(
+                            icon.Handle,
+                            new Int32Rect(0, 0, icon.Width, icon.Height),
+                            BitmapSizeOptions.FromEmptyOptions());
+                        SetImg(img);
+                    }
                 }
                 else if (path.EndsWith(".ico", true, null))
                 {

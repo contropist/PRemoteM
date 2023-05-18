@@ -197,6 +197,12 @@ namespace _1RM.Utils.mRemoteNG
                     field.SetValue(item, value);
                 }
 
+                if (id2MRemoteNgItem.ContainsKey(item.Id))
+                {
+                    var count = id2MRemoteNgItem.Keys.Count(x => x == item.Id
+                                                     || (x.StartsWith(item.Id + " (") && x.EndsWith(")")));
+                    item.Id += $" ({count})";
+                }
                 id2MRemoteNgItem.Add(item.Id, item);
             }
 
@@ -246,7 +252,7 @@ namespace _1RM.Utils.mRemoteNG
             }
         }
 
-        public static List<ProtocolBase>? FromCsv(string csvPath, List<BitmapSource> icons)
+        public static List<ProtocolBase>? FromCsv(string csvPath, List<string> icons)
         {
             if (!File.Exists(csvPath))
                 return null;
@@ -366,9 +372,12 @@ namespace _1RM.Utils.mRemoteNG
                         break;
                 }
 
-                if (server != null && icons.Count > 0)
+                if (server != null)
                 {
-                    server.IconBase64 = icons[r.Next(0, icons.Count)].ToBase64();
+                    if (icons.Count > 0)
+                    {
+                        server.IconBase64 = icons[r.Next(0, icons.Count)];
+                    }
                     list.Add(server);
                 }
             }

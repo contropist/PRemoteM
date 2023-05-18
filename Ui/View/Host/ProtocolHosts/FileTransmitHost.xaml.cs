@@ -1,14 +1,20 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Drawing;
 using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
 using _1RM.Model;
 using _1RM.Model.Protocol;
 using _1RM.Model.Protocol.Base;
 using _1RM.Model.Protocol.FileTransmit;
+using _1RM.Utils;
+using Shawn.Utils;
+using Shawn.Utils.Wpf;
 using Stylet;
 
 namespace _1RM.View.Host.ProtocolHosts
@@ -16,7 +22,18 @@ namespace _1RM.View.Host.ProtocolHosts
     public partial class FileTransmitHost : HostBase
     {
         private readonly VmFileTransmitHost _vmRemote;
-        public FileTransmitHost(ProtocolBase protocolServer) : base(protocolServer, false)
+
+        public static FileTransmitHost Create(ProtocolBase protocolServer)
+        {
+            FileTransmitHost? view = null;
+            Execute.OnUIThreadSync(() =>
+            {
+                view = new FileTransmitHost(protocolServer);
+            });
+            return view!;
+        }
+
+        private FileTransmitHost(ProtocolBase protocolServer) : base(protocolServer, false)
         {
             InitializeComponent();
             Focusable = true;
@@ -24,11 +41,11 @@ namespace _1RM.View.Host.ProtocolHosts
 
             if (protocolServer is SFTP protocolServerSftp)
             {
-                _vmRemote = new VmFileTransmitHost(protocolServerSftp);
+                _vmRemote = new VmFileTransmitHost(protocolServerSftp, base.ConnectionId);
             }
             else if (protocolServer is FTP protocolServerFtp)
             {
-                _vmRemote = new VmFileTransmitHost(protocolServerFtp);
+                _vmRemote = new VmFileTransmitHost(protocolServerFtp, base.ConnectionId);
             }
             else
                 throw new ArgumentException($"Send {protocolServer.GetType()} to {nameof(FileTransmitHost)}!");
@@ -42,6 +59,37 @@ namespace _1RM.View.Host.ProtocolHosts
                     TvFileList.ScrollIntoView(TvFileList.SelectedItem);
                 }
             };
+
+            this.AllowDrop = true;
+            this.DragEnter += OnDragEnter;
+            this.Drop += OnDrop;
+        }
+
+        private void OnDrop(object sender, DragEventArgs e)
+        {
+            try
+            {
+                var fileName = (e.Data.GetData(DataFormats.FileDrop) as System.Array)?.GetValue(0)?.ToString();
+                if (fileName != null)
+                    this._vmRemote.DoUpload(new List<string>() { fileName });
+            }
+            catch (Exception ex)
+            {
+                MessageBoxHelper.ErrorAlert(ex.Message);
+            }
+        }
+
+        private void OnDragEnter(object sender, DragEventArgs e)
+        {
+            // 拖拽文件以上传
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                e.Effects = DragDropEffects.Copy;
+            }
+            else
+            {
+                e.Effects = DragDropEffects.None;
+            }
         }
 
         #region Base Interface
@@ -81,7 +129,10 @@ namespace _1RM.View.Host.ProtocolHosts
 
         private void TvFileList_OnMouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
-            _vmRemote.CmdListViewDoubleClick.Execute();
+            if (MyVisualTreeHelper.VisualUpwardSearch<ListViewItem>((DependencyObject)e.OriginalSource) != null)
+            {
+                _vmRemote.CmdListViewDoubleClick.Execute();
+            }
         }
 
         private void TextBox_OnGotFocus(object sender, RoutedEventArgs e)
@@ -114,8 +165,7 @@ namespace _1RM.View.Host.ProtocolHosts
 
         private void ListViewColumnHeaderClick(object sender, RoutedEventArgs e)
         {
-            var headerClicked = e.OriginalSource as GridViewColumnHeader;
-            if (headerClicked == null)
+            if (e.OriginalSource is not GridViewColumnHeader headerClicked)
                 return;
             var p = headerClicked.Parent as GridViewHeaderRowPresenter;
             foreach (var t in p!.Columns)

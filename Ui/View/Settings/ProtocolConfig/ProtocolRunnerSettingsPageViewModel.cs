@@ -7,6 +7,7 @@ using _1RM.Model.Protocol;
 using _1RM.Model.ProtocolRunner;
 using _1RM.Service;
 using _1RM.Utils;
+using _1RM.View.Utils;
 using Shawn.Utils;
 using Shawn.Utils.Interface;
 using Shawn.Utils.Wpf;
@@ -91,16 +92,16 @@ namespace _1RM.View.Settings.ProtocolConfig
                 return _cmdAddRunner ??= new RelayCommand((o) =>
                 {
                     var c = _protocolConfigurationService.ProtocolConfigs[_selectedProtocol];
-                    // TODO 改为 window manager
-                    var name = InputWindow.InputBox(_languageService.Translate("New runner name"), _languageService.Translate("New runner"), validate: new Func<string, string>((str) =>
-                     {
-                         if (string.IsNullOrWhiteSpace(str))
-                             return _languageService.Translate("Can not be empty!");
-                         if (c.Runners.Any(x => x.Name == str))
-                             return _languageService.Translate("{0} is existed!", str);
-                         return "";
-                     }), owner: IoC.Get<MainWindowView>()).Trim();
-                    if (string.IsNullOrEmpty(name) == false && c.Runners.All(x => x.Name != name))
+                    var name = InputBoxViewModel.GetValue(_languageService.Translate("New runner name"), new Func<string, string>((str) =>
+                    {
+                        if (string.IsNullOrWhiteSpace(str))
+                            return _languageService.Translate("Can not be empty!");
+                        if (c.Runners.Any(x => x.Name == str))
+                            return _languageService.Translate("XXX is already existed!", str);
+                        return "";
+                    }), ownerViewModel: IoC.Get<MainWindowViewModel>());
+
+                    if (name != null && string.IsNullOrEmpty(name) == false && c.Runners.All(x => x.Name != name))
                     {
                         var newRunner = new ExternalRunner(name, SelectedProtocol) { MarcoNames = c.MarcoNames };
                         if (SelectedProtocol == SSH.ProtocolName || SelectedProtocol == SFTP.ProtocolName)
@@ -124,7 +125,7 @@ namespace _1RM.View.Settings.ProtocolConfig
                     var pn = o?.ToString();
                     if (pn == null) return;
 
-                    if (true == MessageBoxHelper.Confirm(IoC.Get<ILanguageService>().Translate("confirm_to_delete")))
+                    if (true == MessageBoxHelper.Confirm(IoC.Get<ILanguageService>().Translate("confirm_to_delete"), ownerViewModel: IoC.Get<MainWindowViewModel>()))
                     {
                         var c = _protocolConfigurationService.ProtocolConfigs[_selectedProtocol];
                         if (string.IsNullOrEmpty(pn) == false && c.Runners.Any(x => x.Name == pn))

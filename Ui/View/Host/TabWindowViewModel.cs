@@ -1,26 +1,29 @@
-﻿using System;
+﻿ using System;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using Dragablz;
-using _1RM.Model;
 using _1RM.Service;
 using _1RM.Utils;
 using _1RM.View.Host.ProtocolHosts;
-using Shawn.Utils.Interface;
+ using _1RM.View.Utils;
+ using Shawn.Utils.Interface;
 using Shawn.Utils.Wpf;
 using Stylet;
+using _1RM.Service.DataSource.DAO.Dapper;
 
 namespace _1RM.View.Host
 {
-    public class TabWindowViewModel : NotifyPropertyChangedBaseScreen, IDisposable
+    public class TabWindowViewModel : MaskLayerContainerScreenBase, IDisposable
     {
         public readonly string Token;
+        private readonly TabWindowBase _windowView;
 
-        public TabWindowViewModel(string token)
+        public TabWindowViewModel(string token, TabWindowBase windowView)
         {
+            _windowView = windowView;
             Token = token;
             Items.CollectionChanged += ItemsOnCollectionChanged;
         }
@@ -28,9 +31,9 @@ namespace _1RM.View.Host
         private void ItemsOnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
         {
             RaisePropertyChanged(nameof(BtnCloseAllVisibility));
-            if (Items.Count == 0 && this.View is TabWindowView tab)
+            if (Items.Count == 0)
             {
-                tab.Hide();
+                _windowView.Hide();
             }
         }
 
@@ -63,11 +66,13 @@ namespace _1RM.View.Host
             get
             {
                 if (SelectedItem?.Content == null
-                    || (SelectedItem?.Content is AxMsRdpClient09Host && SelectedItem?.CanResizeNow == false))
+                    || SelectedItem.Content.CanResizeNow() == false)
                     return ResizeMode.NoResize;
                 return ResizeMode.CanResize;
             }
         }
+
+        public bool LauncherEnabled => IoC.Get<ConfigurationService>().Launcher.LauncherEnabled;
 
         public ObservableCollection<TabItemViewModel> Items { get; } = new ObservableCollection<TabItemViewModel>();
 
@@ -80,35 +85,27 @@ namespace _1RM.View.Host
             set
             {
                 if (_selectedItem != null)
-                    try
-                    {
-                        _selectedItem.PropertyChanged -= SelectedItemOnPropertyChanged;
-                    }
-                    catch (Exception e)
-                    {
-                        Console.Write(e);
-                    }
+                {
+                    _selectedItem.Content.OnCanResizeNowChanged -= OnCanResizeNowChanged;
+                }
 
                 if (SetAndNotifyIfChanged(ref _selectedItem, value))
                 {
-                    RaisePropertyChanged(nameof(WindowResizeMode));
-
                     if (_selectedItem != null)
                     {
                         SetTitle();
-                        _selectedItem.PropertyChanged += SelectedItemOnPropertyChanged;
+                        _selectedItem.Content.OnCanResizeNowChanged += OnCanResizeNowChanged;
                     }
+                    RaisePropertyChanged(nameof(WindowResizeMode));
                 }
             }
         }
 
-        private void SelectedItemOnPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        private void OnCanResizeNowChanged()
         {
-            if (e.PropertyName == nameof(TabItemViewModel.CanResizeNow))
-            {
-                RaisePropertyChanged(nameof(WindowResizeMode));
-            }
+            RaisePropertyChanged(nameof(WindowResizeMode));
         }
+
 
         #region drag drop tab
 
@@ -120,9 +117,41 @@ namespace _1RM.View.Host
         {
             if (SelectedItem != null)
             {
-                this.Title = SelectedItem.Header + " - " + AppPathHelper.APP_DISPLAY_NAME;
+                this.Title = SelectedItem.Header + " - " + Assert.APP_DISPLAY_NAME;
             }
         }
+
+        public bool TryRemoveItem(string connectionId)
+        {
+            var item = Items.FirstOrDefault(x => x.Content.ConnectionId == connectionId);
+            if (item != null)
+            {
+                Execute.OnUIThreadSync(() =>
+                {
+                    Items.Remove(item);
+                    SelectedItem = Items.FirstOrDefault();
+                });
+            }
+            return false;
+        }
+
+        public void AddItem(TabItemViewModel newItem)
+        {
+            if (Items.Any(x => x.Content?.ConnectionId == newItem.Content.ConnectionId))
+            {
+                SelectedItem = Items.First(x => x.Content.ConnectionId == newItem.Content.ConnectionId);
+                return;
+            }
+            Items.Add(newItem);
+            newItem.Content.SetParentWindow(_windowView);
+            SelectedItem = newItem;
+        }
+
+        public TabItemViewModel? GetItem(string connectionId)
+        {
+            return Items.FirstOrDefault(x => x.Content.ConnectionId == connectionId);
+        }
+
 
         #region CMD
 
@@ -134,7 +163,7 @@ namespace _1RM.View.Host
                 return _cmdHostGoFullScreen ??= new RelayCommand((o) =>
                 {
                     if (this.SelectedItem?.Content?.CanResizeNow() ?? false)
-                        IoC.Get<SessionControlService>().MoveProtocolHostToFullScreen(SelectedItem.Content.ConnectionId);
+                        IoC.Get<SessionControlService>().MoveSessionToFullScreen(SelectedItem.Content.ConnectionId);
                 }, o => this.SelectedItem != null && (this.SelectedItem.Content?.CanFullScreen ?? false));
             }
         }
@@ -190,14 +219,44 @@ namespace _1RM.View.Host
             {
                 return _cmdGoMaximize ??= new RelayCommand((o) =>
                 {
-                    if (o is Window window)
-                        window.WindowState = (window.WindowState == WindowState.Normal) ? WindowState.Maximized : WindowState.Normal;
+                    if (_windowView.WindowState != WindowState.Maximized)
+                    {
+                        _windowView.WindowState = WindowState.Maximized;
+                    }
+
+                    else
+                    {
+                        _windowView.WindowStyle = WindowStyle.SingleBorderWindow;
+                        _windowView.WindowState = WindowState.Normal;
+                    }
                 });
             }
         }
 
-        private bool _canCmdClose = true;
 
+        private RelayCommand? _cmdGoMaximizeF11;
+        public RelayCommand CmdGoMaximizeF11
+        {
+            get
+            {
+                return _cmdGoMaximizeF11 ??= new RelayCommand((o) =>
+                {
+                    if (_windowView.WindowState != WindowState.Maximized)
+                    {
+                        _windowView.WindowStyle = WindowStyle.None;
+                        _windowView.WindowState = WindowState.Maximized;
+                    }
+                    else
+                    {
+                        _windowView.WindowStyle = WindowStyle.SingleBorderWindow;
+                        _windowView.WindowState = WindowState.Normal;
+                    }
+                });
+            }
+        }
+
+
+        private bool _canCmdClose = true;
         private RelayCommand? _cmdCloseAll;
         public RelayCommand CmdCloseAll
         {
@@ -210,12 +269,16 @@ namespace _1RM.View.Host
                         _canCmdClose = false;
                         if (IoC.Get<ConfigurationService>().General.ConfirmBeforeClosingSession == true
                             && this.Items.Count > 0
-                            && false == MessageBoxHelper.Confirm(IoC.Get<ILanguageService>().Translate("Are you sure you want to close the connection?")))
+                            && App.ExitingFlag == false
+                            && false == MessageBoxHelper.Confirm(IoC.Get<ILanguageService>().Translate("Are you sure you want to close the connection?"), ownerViewModel: this))
                         {
                         }
                         else
                         {
-                            IoC.Get<SessionControlService>().CloseProtocolHostAsync(Items.Select(x => x.Host.ConnectionId).ToArray());
+                            IoC.Get<SessionControlService>().CloseProtocolHostAsync(
+                                Items
+                                .Where(x => x.Host.ProtocolServer.IsTmpSession() == false)
+                                .Select(x => x.Host.ConnectionId).ToArray());
                         }
                         _canCmdClose = true;
                     }
@@ -234,20 +297,25 @@ namespace _1RM.View.Host
                     {
                         _canCmdClose = false;
                         if (IoC.Get<ConfigurationService>().General.ConfirmBeforeClosingSession == true
-                            && false == MessageBoxHelper.Confirm(IoC.Get<ILanguageService>().Translate("Are you sure you want to close the connection?")))
+                            && App.ExitingFlag == false
+                            && false == MessageBoxHelper.Confirm(IoC.Get<ILanguageService>().Translate("Are you sure you want to close the connection?"), ownerViewModel: this))
                         {
                         }
                         else
                         {
+                            HostBase? host = null;
                             if (o is string connectionId)
                             {
-                                //Items.Remove(Items.FirstOrDefault(x => x.Content.ConnectionId == connectionId));
-                                IoC.Get<SessionControlService>().CloseProtocolHostAsync(connectionId);
+                                host = Items.FirstOrDefault(x => x.Host.ConnectionId == connectionId)?.Host;
                             }
-                            else if (SelectedItem?.Content.ConnectionId != null)
+                            else
                             {
-                                //Items.Remove(SelectedItem);
-                                IoC.Get<SessionControlService>().CloseProtocolHostAsync(SelectedItem.Content.ConnectionId);
+                                host = SelectedItem?.Content;
+                            }
+
+                            if (host != null)
+                            {
+                                IoC.Get<SessionControlService>().CloseProtocolHostAsync(host.ConnectionId);
                             }
                         }
 

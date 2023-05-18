@@ -52,7 +52,7 @@ namespace _1RM.Utils
                 {
                     bool isExcluded = word.StartsWith("-#");
                     string tagName = word.Substring(word.IndexOf("#", StringComparison.Ordinal) + 1);
-                    if(string.IsNullOrWhiteSpace(tagName))
+                    if (string.IsNullOrWhiteSpace(tagName))
                         continue;
 
                     // 完整输入 name 的 tag
@@ -100,7 +100,7 @@ namespace _1RM.Utils
                 return "";
             return filterString + (keyWords?.Count > 0 ? "" : " ");
         }
-        public static Tuple<bool, MatchResults?> MatchKeywords(ProtocolBase server, KeywordDecoded keywordDecoded)
+        public static Tuple<bool, MatchResults?> MatchKeywords(ProtocolBase server, KeywordDecoded keywordDecoded, bool matchSubTitle)
         {
             if (keywordDecoded.IsKeywordEmpty())
             {
@@ -108,7 +108,7 @@ namespace _1RM.Utils
             }
 
             // check include and excluded tags
-            if(keywordDecoded.TagFilterList.Any() == true)
+            if (keywordDecoded.TagFilterList.Any() == true)
             {
                 // check with and logic，必须全部匹配才通过（任意不匹配就不通过）
                 bool bTagMatched = true;
@@ -156,6 +156,10 @@ namespace _1RM.Utils
             // match keywords
             var dispName = server.DisplayName;
             var subTitle = server.SubTitle;
+            if (matchSubTitle == false)
+            {
+                subTitle = "";
+            }
             var mrs = IoC.Get<KeywordMatchService>().Match(new List<string>() { dispName, subTitle }, keywordDecoded.KeyWords);
             if (mrs.IsMatchAllKeywords)
                 return new Tuple<bool, MatchResults?>(true, mrs);

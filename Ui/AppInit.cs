@@ -1,25 +1,21 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Threading;
-using Newtonsoft.Json;
 using _1RM.Model;
-using _1RM.Model.DAO;
 using _1RM.Service;
 using _1RM.View;
 using _1RM.View.Guidance;
 using Shawn.Utils;
-using Shawn.Utils.Wpf;
 using Shawn.Utils.Wpf.FileSystem;
-using Stylet;
 using _1RM.Service.DataSource;
-using _1RM.Service.DataSource.Model;
+using _1RM.Utils;
+using _1RM.Utils.KiTTY.Model;
+using _1RM.Utils.PRemoteM;
+using _1RM.Service.DataSource.DAO;
+using _1RM.View.Utils;
 
 namespace _1RM
 {
@@ -31,7 +27,7 @@ namespace _1RM
             var flag = isFile == false ? IoPermissionHelper.HasWritePermissionOnDir(path) : IoPermissionHelper.HasWritePermissionOnFile(path);
             if (flag == false)
             {
-                MessageBox.Show(LanguageService.Translate("write permissions alert", path), LanguageService.Translate("messagebox_title_warning"), MessageBoxButton.OK);
+                MessageBoxHelper.ErrorAlert(LanguageService?.Translate("write permissions alert", path) ?? "write permissions error:" + path);
                 Environment.Exit(1);
             }
         }
@@ -57,26 +53,31 @@ namespace _1RM
             }
         }
 
-
+        public static void InitOnStartup()
+        {
+            SimpleLogHelper.WriteLogLevel = SimpleLogHelper.EnumLogLevel.Disabled;
+            // Set salt by github action with repository secret
+            UnSafeStringEncipher.Init(Assert.STRING_SALT);
+            Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory); // in case user start app in a different working dictionary.
+        }
 
         public LanguageService? LanguageService;
         public KeywordMatchService? KeywordMatchService;
         public ConfigurationService? ConfigurationService;
         public ThemeService? ThemeService;
         public GlobalData GlobalData = null!;
-        public Configuration newConfiguration = new();
+        public Configuration NewConfiguration = new();
 
         public void InitOnStart()
         {
             Debug.Assert(App.ResourceDictionary != null);
 
-            LanguageService = new LanguageService(App.ResourceDictionary);
+            LanguageService = new LanguageService(App.ResourceDictionary!);
             LanguageService.SetLanguage(CultureInfo.CurrentCulture.Name.ToLower());
-            #region Portable mode or not
+            #region Portable or not
             {
                 var portablePaths = new AppPathHelper(Environment.CurrentDirectory);
-                var appDataPaths = new AppPathHelper(Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), AppPathHelper.APP_NAME));
+                var appDataPaths = new AppPathHelper(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), Assert.APP_NAME));
 
                 bool isPortableMode = false;
                 {
@@ -86,53 +87,61 @@ namespace _1RM
                     bool forcePortable = File.Exists(AppPathHelper.FORCE_INTO_PORTABLE_MODE);
                     bool forceAppData = File.Exists(AppPathHelper.FORCE_INTO_APPDATA_MODE);
                     bool permissionForPortable = AppPathHelper.CheckPermissionForPortablePaths();
-                    if (forcePortable && permissionForPortable == false)
-                    {
-                        var paths = new AppPathHelper(Environment.CurrentDirectory);
-                        WritePermissionCheck(paths.BaseDirPath, false);
-                        WritePermissionCheck(paths.ProtocolRunnerDirPath, false);
-                        WritePermissionCheck(paths.ProfileJsonPath, true);
-                        WritePermissionCheck(paths.LogFilePath, true);
-                        WritePermissionCheck(paths.SqliteDbDefaultPath, true);
-                        WritePermissionCheck(paths.KittyDirPath, false);
-                        WritePermissionCheck(paths.LocalityJsonPath, true);
-                    }
-
+#if FOR_MICROSOFT_STORE_ONLY
+                    forceAppData = true;
+                    forcePortable = false;
+                    permissionForPortable = false;
+#endif
                     bool profileModeIsPortable = false;
                     bool profileModeIsEnabled = true;
-                    if (permissionForPortable == false                          // 当前目录没有写权限时，只能用 AppData 模式
-                        || (forcePortable == false && forceAppData == true))    // 标记了强制 AppData 模式
-                    {
-                        isPortableMode = false;
-                        profileModeIsPortable = false;
-                        profileModeIsEnabled = false;
-                        if (appDataProfilePathExisted == false)
-                        {
-                            _isNewUser = true;
-                        }
-                    }
-                    else if (forcePortable == true && forceAppData == false)
+
+                    if (forcePortable == true && forceAppData == false)
                     {
                         isPortableMode = true;
-                        profileModeIsPortable = true;
-                        profileModeIsEnabled = false;
                         if (portableProfilePathExisted == false)
                         {
+                            profileModeIsPortable = true;
+                            profileModeIsEnabled = false;
                             _isNewUser = true;
                         }
                     }
-                    else
+                    else if (forcePortable == false && forceAppData == true)    // 标记了强制 AppData 模式
                     {
-                        // 当前目录有写权限，且标志文件都存在或都不存在时
-                        profileModeIsPortable = false;
-                        profileModeIsEnabled = true;
+                        isPortableMode = false;
+                        if (appDataProfilePathExisted == false)
+                        {
+                            profileModeIsPortable = false;
+                            profileModeIsEnabled = false;
+                            _isNewUser = true;
+                        }
+                    }
+                    else // 标志文件都存在或都不存在时
+                    {
+                        if (File.Exists(AppPathHelper.FORCE_INTO_APPDATA_MODE))
+                            File.Delete(AppPathHelper.FORCE_INTO_APPDATA_MODE);
+                        if (File.Exists(AppPathHelper.FORCE_INTO_PORTABLE_MODE))
+                            File.Delete(AppPathHelper.FORCE_INTO_PORTABLE_MODE);
+
+
                         if (portableProfilePathExisted)
                         {
                             isPortableMode = true;
                         }
+                        else if (permissionForPortable == false)
+                        {
+                            isPortableMode = false;
+                            if (appDataProfilePathExisted == false)
+                            {
+                                profileModeIsPortable = false;
+                                profileModeIsEnabled = false;
+                                _isNewUser = true;
+                            }
+                        }
                         else
                         {
                             // portable 配置文件不存在，无论 app_data 的配置是否存在都进引导
+                            profileModeIsPortable = !appDataProfilePathExisted;
+                            profileModeIsEnabled = true;
                             _isNewUser = true;
                         }
                     }
@@ -140,8 +149,9 @@ namespace _1RM
 
                     if (_isNewUser)
                     {
+                        PRemoteMTransferHelper.RunIsNeedTransferCheckAsync();
                         // 新用户显示引导窗口
-                        var guidanceWindowViewModel = new GuidanceWindowViewModel(LanguageService, newConfiguration, profileModeIsPortable, profileModeIsEnabled);
+                        var guidanceWindowViewModel = new GuidanceWindowViewModel(LanguageService, NewConfiguration, profileModeIsPortable, profileModeIsEnabled);
                         var guidanceWindow = new GuidanceWindow(guidanceWindowViewModel);
                         guidanceWindow.ShowDialog();
                         isPortableMode = guidanceWindowViewModel.ProfileModeIsPortable;
@@ -182,7 +192,7 @@ namespace _1RM
                     WritePermissionCheck(paths.ProtocolRunnerDirPath, false);
                     WritePermissionCheck(paths.ProfileJsonPath, true);
                     WritePermissionCheck(paths.LogFilePath, true);
-                    WritePermissionCheck(paths.SqliteDbDefaultPath, true);
+                    //WritePermissionCheck(paths.SqliteDbDefaultPath, true);
                     WritePermissionCheck(paths.KittyDirPath, false);
                     WritePermissionCheck(paths.LocalityJsonPath, true);
                 }
@@ -207,7 +217,7 @@ namespace _1RM
                 SimpleLogHelper.WriteLogLevel = SimpleLogHelper.EnumLogLevel.Debug;
                 ConsoleManager.Show();
 #endif
-                SimpleLogHelper.WriteLogLevel = SimpleLogHelper.EnumLogLevel.Warning;
+                SimpleLogHelper.WriteLogLevel = SimpleLogHelper.EnumLogLevel.Info;
                 SimpleLogHelper.PrintLogLevel = SimpleLogHelper.EnumLogLevel.Debug;
                 // init log file placement
                 var fi = new FileInfo(AppPathHelper.Instance.LogFilePath);
@@ -227,67 +237,121 @@ namespace _1RM
                 }
                 else
                 {
-                    newConfiguration.SqliteDatabasePath = AppPathHelper.Instance.SqliteDbDefaultPath;
-                    ConfigurationService = new ConfigurationService(KeywordMatchService, newConfiguration);
+                    NewConfiguration.SqliteDatabasePath = AppPathHelper.Instance.SqliteDbDefaultPath;
+                    ConfigurationService = new ConfigurationService(KeywordMatchService, NewConfiguration);
                 }
             }
             catch (Exception e)
             {
                 SimpleLogHelper.Error(e);
-                newConfiguration.SqliteDatabasePath = AppPathHelper.Instance.SqliteDbDefaultPath;
-                ConfigurationService = new ConfigurationService(KeywordMatchService, newConfiguration);
+                NewConfiguration.SqliteDatabasePath = AppPathHelper.Instance.SqliteDbDefaultPath;
+                ConfigurationService = new ConfigurationService(KeywordMatchService, NewConfiguration);
             }
             // make sure path is not empty
-            if (string.IsNullOrWhiteSpace(newConfiguration.SqliteDatabasePath))
+            if (string.IsNullOrWhiteSpace(NewConfiguration.SqliteDatabasePath))
             {
-                newConfiguration.SqliteDatabasePath = AppPathHelper.Instance.SqliteDbDefaultPath;
+                NewConfiguration.SqliteDatabasePath = AppPathHelper.Instance.SqliteDbDefaultPath;
             }
 
-            ThemeService = new ThemeService(App.ResourceDictionary, ConfigurationService.Theme);
+            ConfigurationService.SetSelfStart();
+            ThemeService = new ThemeService(App.ResourceDictionary!, ConfigurationService.Theme);
             GlobalData = new GlobalData(ConfigurationService);
         }
 
         private bool _isNewUser = false;
-        private EnumDbStatus _localDataConnectionStatus;
+        private EnumDatabaseStatus _localDataConnectionStatus;
 
         public void InitOnConfigure()
         {
             IoC.Get<LanguageService>().SetLanguage(IoC.Get<ConfigurationService>().General.CurrentLanguageCode);
 
-            // Init data sources
-            GlobalData.SetDbOperator(IoC.Get<DataSourceService>());
-            _localDataConnectionStatus = IoC.Get<DataSourceService>().InitLocalDataSource();
-            IoC.Get<GlobalData>().ReloadServerList();
-            foreach (var config in ConfigurationService!.AdditionalDataSource)
+            // Init data sources controller
+            var dataSourceService = IoC.Get<DataSourceService>();
+            GlobalData.SetDataSourceService(dataSourceService);
+
+            // read from configs and find where db is.
             {
-                IoC.Get<DataSourceService>().AddOrUpdateDataSourceAsync(config);
+                var sqliteConfig = ConfigurationService!.LocalDataSource;
+                if (string.IsNullOrWhiteSpace(sqliteConfig.Path))
+                    sqliteConfig.Path = AppPathHelper.Instance.SqliteDbDefaultPath;
+                var fi = new FileInfo(sqliteConfig.Path);
+                if (fi?.Directory?.Exists == false)
+                    fi.Directory.Create();
+                _localDataConnectionStatus = dataSourceService.InitLocalDataSource(sqliteConfig);
             }
+
+            // init session controller
             IoC.Get<SessionControlService>();
-            IoC.Get<TaskTrayService>().TaskTrayInit();
+            IoC.Get<MainWindowViewModel>();
         }
 
 
         public void InitOnLaunch()
         {
-            IoC.Get<MainWindowViewModel>().OnMainWindowViewLoaded += () =>
+            if (_isNewUser == false && ConfigurationService != null)
             {
-                if (_isNewUser)
-                {
-                    // import form PRemoteM db
-                    PrmTransferHelper.Run();
-                }
-            };
-            if (_localDataConnectionStatus != EnumDbStatus.OK)
+                MsAppCenterHelper.TraceSpecial($"App start with - ListPageIsCardView", $"{ConfigurationService.General.ListPageIsCardView}");
+                MsAppCenterHelper.TraceSpecial($"App start with - ConfirmBeforeClosingSession", $"{ConfigurationService.General.ConfirmBeforeClosingSession}");
+                MsAppCenterHelper.TraceSpecial($"App start with - LauncherEnabled", $"{ConfigurationService.Launcher.LauncherEnabled}");
+                MsAppCenterHelper.TraceSpecial($"App start with - Theme", $"{ConfigurationService.Theme.ThemeName}");
+#if NETFRAMEWORK
+                MsAppCenterHelper.TraceSpecial($"App start with - Net", $"4.8");
+#else
+                MsAppCenterHelper.TraceSpecial($"App start with - Net", $"6.x");
+#endif
+            }
+
+            KittyConfig.CleanUpOldConfig();
+
+
+            bool appStartMinimized = true;
+            if (_localDataConnectionStatus != EnumDatabaseStatus.OK)
             {
                 string error = _localDataConnectionStatus.GetErrorInfo();
-                MessageBox.Show(error, IoC.Get<LanguageService>().Translate("messagebox_title_error"), MessageBoxButton.OK, MessageBoxImage.Error, MessageBoxResult.None, MessageBoxOptions.DefaultDesktopOnly);
-                IoC.Get<MainWindowViewModel>().ShowMe(goPage: EnumMainWindowPage.SettingsData);
+                IoC.Get<MainWindowViewModel>().OnMainWindowViewLoaded += () =>
+                {
+                    IoC.Get<MainWindowViewModel>().ShowMe(goPage: EnumMainWindowPage.SettingsData);
+                    MessageBoxHelper.ErrorAlert(error);
+                };
+                appStartMinimized = false;
             }
-            else if (IoC.Get<ConfigurationService>().General.AppStartMinimized == false
-                || _isNewUser)
+            if (IoC.Get<ConfigurationService>().General.AppStartMinimized == false || _isNewUser)
             {
-                IoC.Get<MainWindowViewModel>().ShowMe(goPage: EnumMainWindowPage.List);
+                IoC.Get<MainWindowViewModel>().OnMainWindowViewLoaded += () =>
+                {
+                    IoC.Get<MainWindowViewModel>().ShowMe(goPage: EnumMainWindowPage.List);
+                    if (_isNewUser)
+                    {
+                        // import form PRemoteM db
+                        PRemoteMTransferHelper.TransAsync();
+                    }
+                    else
+                    {
+                        MaskLayerController.ShowProcessingRing();
+                    }
+                };
+                appStartMinimized = false;
             }
+            if (!appStartMinimized)
+            {
+                IoC.Get<MainWindowViewModel>().ShowMe();
+            }
+
+
+            Task.Factory.StartNew(() =>
+            {
+                //// read from primary database
+                //IoC.Get<GlobalData>().ReloadServerList(true);
+                // read from AdditionalDataSource async
+                if (ConfigurationService!.AdditionalDataSource.Any())
+                    Task.WaitAll(ConfigurationService!.AdditionalDataSource.Select(config =>
+                        Task.Factory.StartNew(() =>
+                        {
+                            IoC.Get<DataSourceService>().AddOrUpdateDataSource(config, doReload: false);
+                        })).ToArray());
+                IoC.Get<GlobalData>().ReloadServerList(true);
+                MaskLayerController.HideMask();
+            });
         }
     }
 }

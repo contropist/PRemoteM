@@ -3,8 +3,6 @@ using Newtonsoft.Json;
 using _1RM.Model.Protocol.Base;
 using _1RM.Utils.KiTTY;
 using Shawn.Utils;
-using _1RM.Service.DataSource;
-using _1RM.Service.DataSource.Model;
 
 namespace _1RM.Model.Protocol
 {
@@ -19,7 +17,7 @@ namespace _1RM.Model.Protocol
         }
 
         private string _privateKey = "";
-        [OtherName(Name = "RM_SSH_PRIVATE_KEY_PATH")]
+        [OtherName(Name = "SSH_PRIVATE_KEY_PATH")]
         public string PrivateKey
         {
             get => _privateKey;
@@ -28,7 +26,7 @@ namespace _1RM.Model.Protocol
 
         private int? _sshVersion = 2;
 
-        [OtherName(Name = "RM_SSH_VERSION")]
+        [OtherName(Name = "SSH_VERSION")]
         public int? SshVersion
         {
             get => _sshVersion;
@@ -37,7 +35,7 @@ namespace _1RM.Model.Protocol
 
         private string _startupAutoCommand = "";
 
-        [OtherName(Name = "RM_STARTUP_AUTO_COMMAND")]
+        [OtherName(Name = "STARTUP_AUTO_COMMAND")]
         public string StartupAutoCommand
         {
             get => _startupAutoCommand;
@@ -83,50 +81,48 @@ namespace _1RM.Model.Protocol
             return 1;
         }
 
-        public string GetPuttyConnString(DataSourceBase sourceService)
-        {
-            var ssh = (this.Clone() as SSH)!;
-            ssh.ConnectPreprocess(sourceService);
-
-            // var arg = $"-ssh {port} {user} {pw} {server}";
-            // var arg = $@" -load ""{PuttyOption.SessionName}"" {IP} -P {PORT} -l {user} -pw {pdw} -{ssh version}";
-            //var arg = $"-ssh {Address} -P {Port} -l {UserName} -pw {Password} -{(int)SshVersion}";
-            //var template = $@" -load ""%SessionName%"" %Address% -P %Port% -l %UserName% -pw %Password% -%SshVersion% -cmd ""%StartupAutoCommand%""";
-            //var properties = this.GetType().GetProperties(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
-            //foreach (var property in properties)
-            //{
-            //    if (property.CanRead && property.GetMethod.IsPublic)
-            //    {
-            //        var val = property.GetValue(serverBase);
-            //        var key = property.Name;
-            //        template = template.Replace($"%{key}%", val?.ToString() ?? "");
-            //    }
-            //}
-
-            //var arg = $@" -load ""{serverBase.SessionName}"" {serverBase.Address} -P {serverBase.Port} -l {serverBase.UserName} -pw {serverBase.Password} -{(int)serverBase.SshVersion} -cmd ""{serverBase.StartupAutoCommand}""";
-
-            var template = $@" -load ""%RM_SESSION_NAME%"" %RM_HOSTNAME% -P %RM_PORT% -l %RM_USERNAME% -pw %RM_PASSWORD% -%RM_SSH_VERSION% -cmd ""%RM_STARTUP_AUTO_COMMAND%""";
-            var arg = OtherNameAttributeExtensions.Replace(ssh, template);
-            return " " + arg;
-        }
-
         [JsonIgnore]
         public ProtocolBase ProtocolBase => this;
 
-        public string GetExeFullPath()
+        public string GetExeArguments(string sessionName)
         {
-            return this.GetKittyExeFullName();
+            var ssh = (this.Clone() as SSH)!;
+            ssh.ConnectPreprocess();
+
+            //var arg = $@" -load ""{ssh.SessionName}"" {ssh.Address} -P {ssh.Port} -l {ssh.UserName} -pw {ssh.Password} -{(int)(ssh.SshVersion ?? 2)} -cmd ""{ssh.StartupAutoCommand}""";
+
+            //var template = $@" -load ""{this.GetSessionName()}"" %HOSTNAME% -P %PORT% -l %USERNAME% -pw %PASSWORD% -%SSH_VERSION% -cmd ""%STARTUP_AUTO_COMMAND%""";
+            //var arg = OtherNameAttributeExtensions.Replace(ssh, template);
+
+            var arg = $@" -load ""{sessionName}"" {ssh.Address} -P {ssh.Port} -l {ssh.UserName} -pw {ssh.Password} -{(int)(ssh.SshVersion ?? 2)} -cmd ""{ssh.StartupAutoCommand}""";
+            return " " + arg;
         }
 
-        public string GetExeArguments(DataSourceBase source)
+        public override void ConnectPreprocess()
         {
-            return GetPuttyConnString(source);
-        }
-
-        public override void ConnectPreprocess(DataSourceBase source)
-        {
-            base.ConnectPreprocess(source);
+            base.ConnectPreprocess();
             StartupAutoCommand = StartupAutoCommand.Replace(@"""", @"\""");
+        }
+
+
+
+        public override Credential GetCredential()
+        {
+            var c = new Credential()
+            {
+                Address = Address,
+                Port = Port,
+                Password = Password,
+                UserName = UserName,
+                PrivateKeyPath = PrivateKey,
+            };
+            return c;
+        }
+
+        public override void SetCredential(in Credential credential)
+        {
+            base.SetCredential(credential);
+            PrivateKey = credential.PrivateKeyPath;
         }
     }
 }

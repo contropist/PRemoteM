@@ -2,8 +2,6 @@
 using _1RM.Model.Protocol.Base;
 using _1RM.Model.Protocol.FileTransmit;
 using _1RM.Model.Protocol.FileTransmit.Transmitters;
-using _1RM.Service;
-using _1RM.Service.DataSource;
 using Shawn.Utils;
 
 namespace _1RM.Model.Protocol
@@ -18,7 +16,7 @@ namespace _1RM.Model.Protocol
         }
 
         private string _startupPath = "/";
-        [OtherName(Name = "RM_STARTUP_PATH")]
+        [OtherName(Name = "STARTUP_PATH")]
         public string StartupPath
         {
             get => _startupPath;
@@ -50,11 +48,9 @@ namespace _1RM.Model.Protocol
 
         public ITransmitter GeTransmitter()
         {
-            var hostname = this.Address;
-            int port = this.GetPort();
-            var username = this.UserName;
-            var password = this.GetDataSource()?.DecryptOrReturnOriginalString(this.Password) ?? this.Password;
-            return new TransmitterFtp(hostname, port, username, password);
+            var ftp = (this.Clone() as FTP)!;
+            ftp.ConnectPreprocess();
+            return new TransmitterFtp(ftp.Address, ftp.GetPort(), ftp.UserName, ftp.Password);
         }
 
         public string GetStartupPath()

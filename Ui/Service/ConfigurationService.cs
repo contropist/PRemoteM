@@ -1,20 +1,18 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Input;
 using Newtonsoft.Json;
-using _1RM.Model.DAO;
 using _1RM.Service.DataSource;
 using _1RM.Service.DataSource.Model;
 using _1RM.Utils;
 using Shawn.Utils;
+using Shawn.Utils.Wpf;
 using VariableKeywordMatcher.Provider.DirectMatch;
+using SetSelfStartingHelper = _1RM.Utils.SetSelfStartingHelper;
 
 namespace _1RM.Service
 {
@@ -23,9 +21,14 @@ namespace _1RM.Service
         public DateTime InstallTime = DateTime.Today;
         public bool DoNotShowAgain = false;
         public string DoNotShowAgainVersionString = "";
-        [JsonIgnore]
-        public VersionHelper.Version DoNotShowAgainVersion => VersionHelper.Version.FromString(DoNotShowAgainVersionString);
         public DateTime LastRequestRatingsTime = DateTime.MinValue;
+        [Newtonsoft.Json.JsonIgnore]
+        public VersionHelper.Version DoNotShowAgainVersion => VersionHelper.Version.FromString(DoNotShowAgainVersionString);
+
+
+        public string BreakingChangeAlertVersionString = "";
+        [Newtonsoft.Json.JsonIgnore]
+        public VersionHelper.Version BreakingChangeAlertVersion => VersionHelper.Version.FromString(BreakingChangeAlertVersionString);
         public int ConnectCount = 0;
     }
     public class GeneralConfig
@@ -36,6 +39,20 @@ namespace _1RM.Service
         public bool AppStartMinimized = true;
         public bool ListPageIsCardView = false;
         public bool ConfirmBeforeClosingSession = false;
+        [DefaultValue(true)]
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+        public bool ShowSessionIconInSessionWindow = true;
+
+        [DefaultValue(true)]
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+        public bool TabHeaderShowCloseButton = true;
+        [DefaultValue(false)]
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+        public bool TabHeaderShowReConnectButton = false;
+        [DefaultValue(false)]
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+        public bool ShowRecentlySessionInTray = false;
+        public bool ShowNoteFieldInListView = true;
         #endregion
     }
 
@@ -52,7 +69,7 @@ namespace _1RM.Service
         public Key HotKeyKey = Key.M;
 
         public bool ShowNoteFieldInLauncher = true;
-        public bool ShowNoteFieldInListView = true;
+        public bool ShowCredentials = true;
     }
 
     public class KeywordMatchConfig
@@ -68,7 +85,7 @@ namespace _1RM.Service
     //    public SqliteSource LocalDataSource { get; set; } = new SqliteSource()
     //    {
     //        DataSourceName = DataSourceService.LOCAL_DATA_SOURCE_NAME,
-    //        Path = "./" + AppPathHelper.APP_NAME + ".db"
+    //        Path = "./" + Assert.APP_NAME + ".db"
     //    };
     //    public List<DataSourceBase> AdditionalDataSource { get; set; } = new List<DataSourceBase>();
     //}
@@ -89,6 +106,21 @@ namespace _1RM.Service
 
         public string BackgroundColor = "#1e1e1e";
         public string BackgroundTextColor = "#cccccc";
+
+        #region GetColor
+        public System.Windows.Media.Color GetPrimaryMidColor => ColorAndBrushHelper.HexColorToMediaColor(PrimaryMidColor);
+        public System.Windows.Media.Color GetPrimaryLightColor => ColorAndBrushHelper.HexColorToMediaColor(PrimaryLightColor);
+        public System.Windows.Media.Color GetPrimaryDarkColor => ColorAndBrushHelper.HexColorToMediaColor(PrimaryDarkColor);
+        public System.Windows.Media.Color GetPrimaryTextColor => ColorAndBrushHelper.HexColorToMediaColor(PrimaryTextColor);
+
+        public System.Windows.Media.Color GetAccentMidColor => ColorAndBrushHelper.HexColorToMediaColor(AccentMidColor);
+        public System.Windows.Media.Color GetAccentLightColor => ColorAndBrushHelper.HexColorToMediaColor(AccentLightColor);
+        public System.Windows.Media.Color GetAccentDarkColor => ColorAndBrushHelper.HexColorToMediaColor(AccentDarkColor);
+        public System.Windows.Media.Color GetAccentTextColor => ColorAndBrushHelper.HexColorToMediaColor(AccentTextColor);
+
+        public System.Windows.Media.Color GetBackgroundColor => ColorAndBrushHelper.HexColorToMediaColor(BackgroundColor);
+        public System.Windows.Media.Color GetBackgroundTextColor => ColorAndBrushHelper.HexColorToMediaColor(BackgroundTextColor);
+        #endregion
     }
 
     public class Configuration
@@ -96,8 +128,16 @@ namespace _1RM.Service
         public GeneralConfig General { get; set; } = new GeneralConfig();
         public LauncherConfig Launcher { get; set; } = new LauncherConfig();
         public KeywordMatchConfig KeywordMatch { get; set; } = new KeywordMatchConfig();
-        public int DatabaseCheckPeriod { get; set; } = 10;
-        public string SqliteDatabasePath { get; set; } = "./" + AppPathHelper.APP_NAME + ".db";
+        public int DatabaseCheckPeriod { get; set; } = 20;
+        public int DatabaseReconnectPeriod { get; set; } = 60 * 5;
+
+        private string _sqliteDatabasePath = "./" + Assert.APP_NAME + ".db";
+        public string SqliteDatabasePath
+        {
+            get => _sqliteDatabasePath;
+            set => _sqliteDatabasePath = value.Replace(Environment.CurrentDirectory, ".");
+        }
+
         public ThemeConfig Theme { get; set; } = new ThemeConfig();
         public EngagementSettings Engagement { get; set; } = new EngagementSettings();
         public List<string> PinnedTags { get; set; } = new List<string>();
@@ -118,12 +158,17 @@ namespace _1RM.Service
         public GeneralConfig General => _cfg.General;
         public LauncherConfig Launcher => _cfg.Launcher;
         public KeywordMatchConfig KeywordMatch => _cfg.KeywordMatch;
-        public SqliteSource LocalDataSource { get; } = new SqliteSource();
+        public SqliteSource LocalDataSource { get; } = new SqliteSource("Local");
 
         public int DatabaseCheckPeriod
         {
             get => _cfg.DatabaseCheckPeriod >= 0 ? (_cfg.DatabaseCheckPeriod > 99 ? 99 : _cfg.DatabaseCheckPeriod) : 0;
             set => _cfg.DatabaseCheckPeriod = value >= 0 ? (value > 99 ? 99 : value) : 0;
+        }
+        public int DatabaseReconnectPeriod
+        {
+            get => _cfg.DatabaseReconnectPeriod >= 0 ? (_cfg.DatabaseReconnectPeriod > 60 * 60 ? 60 * 60 : _cfg.DatabaseReconnectPeriod) : 0;
+            set => _cfg.DatabaseReconnectPeriod = value >= 0 ? (value > 60 * 60 ? 60 * 60 : value) : 0;
         }
 
 
@@ -152,6 +197,7 @@ namespace _1RM.Service
             _keywordMatchService = keywordMatchService;
             AvailableMatcherProviders = KeywordMatchService.GetMatchProviderInfos() ?? new List<MatchProviderInfo>();
 
+            LocalDataSource.Path = _cfg.SqliteDatabasePath;
             LocalDataSource.PropertyChanged += (sender, args) =>
             {
                 if (args.PropertyName == nameof(SqliteSource.Path))
@@ -185,13 +231,8 @@ namespace _1RM.Service
                 info.PropertyChanged += OnMatchProviderChangedHandler;
             }
 
-#if FOR_MICROSOFT_STORE_ONLY
-            SimpleLogHelper.Debug($"SetSelfStartingHelper.SetSelfStartByStartupTask({General.AppStartAutomatically}, \"{AppPathHelper.APP_NAME}\")");
-            SetSelfStartingHelper.SetSelfStartByStartupTask(General.AppStartAutomatically, AppPathHelper.APP_NAME);
-#else
-            SimpleLogHelper.Debug($"SetSelfStartingHelper.SetSelfStartByRegistryKey({General.AppStartAutomatically}, \"{AppPathHelper.APP_NAME}\")");
-            SetSelfStartingHelper.SetSelfStartByRegistryKey(General.AppStartAutomatically, AppPathHelper.APP_NAME);
-#endif
+
+            AdditionalDataSource = DataSourceService.AdditionalSourcesLoadFromProfile(AppPathHelper.Instance.ProfileAdditionalDataSourceJsonPath);
             Save();
         }
 
@@ -209,6 +250,7 @@ namespace _1RM.Service
 
         public void Save()
         {
+            AdditionalDataSource = AdditionalDataSource.Distinct().ToList();
             if (!CanSave) return;
             lock (this)
             {
@@ -218,19 +260,61 @@ namespace _1RM.Service
                     var fi = new FileInfo(AppPathHelper.Instance.ProfileJsonPath);
                     if (fi?.Directory?.Exists == false)
                         fi.Directory.Create();
-                    File.WriteAllText(AppPathHelper.Instance.ProfileJsonPath, JsonConvert.SerializeObject(this._cfg, Formatting.Indented), Encoding.UTF8);
+
+                    RetryHelper.Try(() =>
+                    {
+                        File.WriteAllText(AppPathHelper.Instance.ProfileJsonPath, JsonConvert.SerializeObject(this._cfg, Formatting.Indented), Encoding.UTF8);
+                    }, actionOnError: exception => MsAppCenterHelper.Error(exception));
                 }
 
+                
                 DataSourceService.AdditionalSourcesSaveToProfile(AppPathHelper.Instance.ProfileAdditionalDataSourceJsonPath, AdditionalDataSource);
 
                 CanSave = true;
             }
 
+            SetSelfStart();
+        }
+
+        public static Exception? CheckSetSelfStart()
+        {
+            try
+            {
 #if FOR_MICROSOFT_STORE_ONLY
-            SetSelfStartingHelper.SetSelfStartByStartupTask(General.AppStartAutomatically, AppPathHelper.APP_NAME);
+                SetSelfStartingHelper.SetSelfStartByStartupTask(true, Assert.AppName);
+                SetSelfStartingHelper.SetSelfStartByStartupTask(false, Assert.AppName);
 #else
-            SetSelfStartingHelper.SetSelfStartByRegistryKey(General.AppStartAutomatically, AppPathHelper.APP_NAME);
+                SetSelfStartingHelper.SetSelfStartByRegistryKey(true, Assert.APP_NAME);
+                SetSelfStartingHelper.SetSelfStartByRegistryKey(false, Assert.APP_NAME);
 #endif
+                return null;
+            }
+            catch (Exception e)
+            {
+                SimpleLogHelper.Error(e);
+                return e;
+            }
+        }
+
+
+        public Exception? SetSelfStart()
+        {
+            try
+            {
+#if FOR_MICROSOFT_STORE_ONLY
+                SetSelfStartingHelper.SetSelfStartByStartupTask(General.AppStartAutomatically, Assert.AppName);
+#else
+                SimpleLogHelper.Debug($"SetSelfStartingHelper.SetSelfStartByRegistryKey({General.AppStartAutomatically}, \"{Assert.APP_NAME}\")");
+                SetSelfStartingHelper.SetSelfStartByRegistryKey(General.AppStartAutomatically, Assert.APP_NAME);
+#endif
+                return null;
+            }
+            catch (Exception e)
+            {
+                SimpleLogHelper.Error(e);
+                General.AppStartAutomatically = false;
+                return e;
+            }
         }
 
 

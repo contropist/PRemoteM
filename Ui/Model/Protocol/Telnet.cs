@@ -3,8 +3,6 @@ using Newtonsoft.Json;
 using _1RM.Model.Protocol.Base;
 using _1RM.Utils.KiTTY;
 using Shawn.Utils;
-using _1RM.Service.DataSource;
-using _1RM.Service.DataSource.Model;
 
 namespace _1RM.Model.Protocol
 {
@@ -39,11 +37,6 @@ namespace _1RM.Model.Protocol
             return 3;
         }
 
-        public string GetPuttyConnString(DataSourceBase _)
-        {
-            return $@" -load ""{this.GetSessionName()}"" -telnet {Address} -P {Port}";
-        }
-
         private string _startupAutoCommand = "";
 
         public string StartupAutoCommand
@@ -62,14 +55,11 @@ namespace _1RM.Model.Protocol
             set => SetAndNotifyIfChanged(ref _externalKittySessionConfigPath, value);
         }
 
-        public string GetExeFullPath()
+        public string GetExeArguments(string sessionName)
         {
-            return this.GetKittyExeFullName();
-        }
-
-        public string GetExeArguments(DataSourceBase sourceService)
-        {
-            return GetPuttyConnString(sourceService);
+            var tel = (this.Clone() as Telnet)!;
+            tel.ConnectPreprocess();
+            return $@" -load ""{sessionName}"" -telnet {tel.Address} -P {tel.Port}";
         }
     }
 }

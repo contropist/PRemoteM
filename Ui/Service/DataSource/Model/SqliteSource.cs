@@ -1,19 +1,17 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using _1RM.Model.DAO;
-using _1RM.Model.DAO.Dapper;
+using _1RM.Service.DataSource.DAO.Dapper;
+using _1RM.Service.DataSource.DAO;
 using Newtonsoft.Json;
 using Shawn.Utils;
 
 namespace _1RM.Service.DataSource.Model
 {
-    public partial class SqliteSource : DataSourceBase
+    public sealed partial class SqliteSource : DataSourceBase
     {
+        public readonly string Name;
+        private readonly IDatabase _database;
+
         private string _path = "";
         public string Path
         {
@@ -23,12 +21,14 @@ namespace _1RM.Service.DataSource.Model
                 var newValue = value.Replace(Environment.CurrentDirectory, ".");
                 SetAndNotifyIfChanged(ref _path, newValue);
                 var fi = new FileInfo(Path);
-                _isWritable = fi.IsReadOnly == false;
+                IsWritable = fi.IsReadOnly == false;
             }
         }
 
-        public SqliteSource() : base()
+        public SqliteSource(string name) : base()
         {
+            Name = name;
+            _database = new DapperDatabaseFree(Name, DatabaseType);
             SimpleLogHelper.Debug(nameof(SqliteSource) + " Construct: " + this.GetHashCode());
         }
 
@@ -49,17 +49,9 @@ namespace _1RM.Service.DataSource.Model
 
 
 
-        private readonly IDataBase _dataBase = new DapperDataBaseFree();
-        public override IDataBase GetDataBase()
+        public override IDatabase GetDataBase()
         {
-            return _dataBase;
-        }
-
-
-        public override string Database_GetPrivateKeyPath()
-        {
-            Debug.Assert(_dataBase != null);
-            return _dataBase?.Get_RSA_PrivateKeyPath() ?? "";
+            return _database;
         }
     }
 }

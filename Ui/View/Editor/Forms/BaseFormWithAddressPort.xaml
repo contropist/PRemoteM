@@ -6,6 +6,7 @@
                         xmlns:editor="clr-namespace:_1RM.View.Editor"
                         xmlns:protocol="clr-namespace:_1RM.Model.Protocol"
                         xmlns:base="clr-namespace:_1RM.Model.Protocol.Base"
+                        xmlns:alternativeCredential="clr-namespace:_1RM.View.Editor.Forms.AlternativeCredential"
                         mc:Ignorable="d"
                         d:DataContext="{d:DesignInstance base:ProtocolBaseWithAddressPort}"
                         d:DesignHeight="1450" d:DesignWidth="800">
@@ -16,17 +17,19 @@
             <StackPanel Orientation="Horizontal">
                 <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="{DynamicResource Hostname}"></TextBlock>
                 <Grid Style="{StaticResource EditorRowGridInput}">
-                    <TextBox Text="{Binding Address,UpdateSourceTrigger=PropertyChanged}"
+                    <TextBox Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}"
                                                                   Tag="e.g. 192.168.0.101"></TextBox>
                 </Grid>
                 <TextBlock Style="{StaticResource EditorRowGridTitle}" Width="60" Text="{DynamicResource Port}"></TextBlock>
                 <Grid Style="{StaticResource EditorRowGridInput}">
-                    <TextBox MinWidth="50" Text="{Binding Port,UpdateSourceTrigger=PropertyChanged,ValidatesOnExceptions=True,NotifyOnValidationError=True}"
-                                 HorizontalAlignment="Left"
-                                 InputMethod.IsInputMethodEnabled="False"
-                                 InputScope="Number"
-                        ></TextBox>
+                    <TextBox MinWidth="50" Text="{Binding Port, UpdateSourceTrigger=PropertyChanged,ValidatesOnExceptions=True,NotifyOnValidationError=True}"
+                             HorizontalAlignment="Left"
+                             InputMethod.IsInputMethodEnabled="False"
+                             InputScope="Number"/>
                 </Grid>
+
+                <alternativeCredential:AlternativeCredentialListControl></alternativeCredential:AlternativeCredentialListControl>
+
             </StackPanel>
         </Grid>
     </StackPanel>

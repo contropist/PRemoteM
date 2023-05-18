@@ -1,4 +1,6 @@
-﻿using _1RM.Service;
+﻿using System.Windows;
+using System.Windows.Input;
+using _1RM.Service;
 
 namespace _1RM.View.Host
 {
@@ -9,7 +11,7 @@ namespace _1RM.View.Host
             InitializeComponent();
             this.Loaded += (sender, args) =>
             {
-                base.Init(TabablzControl);
+                base.SetTabablzControl(TabablzControl);
             };
         }
     }

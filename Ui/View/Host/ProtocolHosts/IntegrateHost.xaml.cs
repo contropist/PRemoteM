@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Forms;
@@ -108,7 +109,17 @@ namespace _1RM.View.Host.ProtocolHosts
         public readonly string ExeArguments;
         private readonly Dictionary<string, string> _environmentVariables;
 
-        public IntegrateHost(ProtocolBase protocol, string exeFullName, string exeArguments, Dictionary<string, string>? environmentVariables = null) : base(protocol, false)
+        public static IntegrateHost Create(ProtocolBase protocol, string exeFullName, string exeArguments, Dictionary<string, string>? environmentVariables = null)
+        {
+            IntegrateHost? view = null;
+            Execute.OnUIThreadSync(() =>
+            {
+                view = new IntegrateHost(protocol, exeFullName, exeArguments, environmentVariables);
+            });
+            return view!;
+        }
+
+        private IntegrateHost(ProtocolBase protocol, string exeFullName, string exeArguments, Dictionary<string, string>? environmentVariables = null) : base(protocol, false)
         {
             ExeFullName = exeFullName;
             ExeArguments = exeArguments;
@@ -268,15 +279,17 @@ namespace _1RM.View.Host.ProtocolHosts
 
         public void Start()
         {
+            if (File.Exists(ExeFullName) == false) return;
+
             RunBeforeConnect?.Invoke();
             var exeFullName = ExeFullName;
-            Debug.Assert(File.Exists(exeFullName));
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = exeFullName,
                 WorkingDirectory = new FileInfo(exeFullName).DirectoryName,
                 Arguments = ExeArguments,
-                WindowStyle = ProcessWindowStyle.Minimized
+                WindowStyle = ProcessWindowStyle.Normal
             };
 
             // Set environment variables
@@ -301,7 +314,11 @@ namespace _1RM.View.Host.ProtocolHosts
 
             SimpleLogHelper.Debug($"{nameof(IntegrateHost)}: Start process {exeFullName}");
 
-
+            Task.Factory.StartNew(() =>
+            {
+                Thread.Sleep(1 * 1000);
+                RunAfterConnected?.Invoke();
+            });
 
             // keep detect MainWindowHandle in next 10 seconds.
             var endTime = DateTime.Now.AddSeconds(10);
@@ -315,7 +332,7 @@ namespace _1RM.View.Host.ProtocolHosts
                     return;
                 }
                 else if (_process.MainWindowHandle != IntPtr.Zero
-                && _exeHandles.Contains(_process.MainWindowHandle) == false)
+                    && _exeHandles.Contains(_process.MainWindowHandle) == false)
                 {
                     _exeHandles.Add(_process.MainWindowHandle);
                     SimpleLogHelper.Debug($"new _process.MainWindowHandle = {_process.MainWindowHandle}");

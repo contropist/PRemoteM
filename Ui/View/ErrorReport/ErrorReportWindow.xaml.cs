@@ -8,11 +8,13 @@ using Microsoft.Win32;
 using Shawn.Utils;
 using System.Windows;
 using System.Windows.Media.Animation;
-using _1RM.Service;
+using _1RM.Utils;
+using Microsoft.AppCenter.Crashes;
 using Shawn.Utils.Wpf.Controls;
 using Shawn.Utils.Wpf.FileSystem;
 using Shawn.Utils.Wpf.PageHost;
 using Shawn.Utils.WpfResources.Theme.Styles;
+using System.Collections.Generic;
 
 namespace _1RM.View.ErrorReport
 {
@@ -27,7 +29,6 @@ namespace _1RM.View.ErrorReport
             Init();
 
             TbErrorInfo.Text = e.Message;
-            TbErrorInfo.Text += e.Message;
 
             var sb = new StringBuilder();
 
@@ -68,7 +69,8 @@ namespace _1RM.View.ErrorReport
             sb.AppendLine("</details>");
             sb.AppendLine();
 
-            TbErrorInfo.Text = sb.ToString();
+            TbErrorInfo.Text = sb.ToString(); 
+            MsAppCenterHelper.Error(e, attachments: new List<ErrorAttachmentLog>() { ErrorAttachmentLog.AttachmentWithText(TbErrorInfo.Text, "log.md") });
         }
 
         private void Init()
@@ -107,7 +109,7 @@ namespace _1RM.View.ErrorReport
                 sb.AppendLine("");
                 sb.AppendLine("|     Component   |                       Version                      |");
                 sb.AppendLine("|:------------------|:--------------------------------------|");
-                sb.AppendLine($"|{AppPathHelper.APP_DISPLAY_NAME} | `{AppVersion.Version}`({from})|");
+                sb.AppendLine($"|{Assert.APP_DISPLAY_NAME} | `{AppVersion.Version}`({from})|");
                 sb.AppendLine($"|.NET Framework | `{framework?.NamedArguments?[0].TypedValue.Value?.ToString()}`    |");
                 sb.AppendLine($"|CLR            | `{Environment.Version}`       |");
                 sb.AppendLine($"|OS             | `{platform}`                  |");
@@ -150,7 +152,7 @@ namespace _1RM.View.ErrorReport
             {
                 var path = SelectFileHelper.SaveFile(
                     filter: "log |*.log.md",
-                    selectedFileName: AppPathHelper.APP_NAME + "_ErrorReport_" + DateTime.Now.ToString("yyyyMMddhhmmss") + ".md");
+                    selectedFileName: Assert.APP_NAME + "_ErrorReport_" + DateTime.Now.ToString("yyyyMMddhhmmss") + ".md");
                 if (path == null) return;
                 File.WriteAllText(path, TbErrorInfo.Text.Replace("\n", "\n\n"), Encoding.UTF8);
                 var sb = new Storyboard();
@@ -179,7 +181,7 @@ namespace _1RM.View.ErrorReport
         {
             try
             {
-                string mailto = string.Format("mailto:{0}?Subject={1}&Body={2}", "veckshawn@gmail.com", $"{AppPathHelper.APP_DISPLAY_NAME} error report.", "");
+                string mailto = string.Format("mailto:{0}?Subject={1}&Body={2}", "veckshawn@gmail.com", $"{Assert.APP_DISPLAY_NAME} error report.", "");
 #pragma warning disable CS0618
 #pragma warning disable SYSLIB0013 // 类型或成员已过时
                 mailto = Uri.EscapeUriString(mailto);

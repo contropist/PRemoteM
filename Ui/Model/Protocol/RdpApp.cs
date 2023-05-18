@@ -1,10 +1,7 @@
 ﻿using System;
-using System.Diagnostics;
 using Newtonsoft.Json;
 using _1RM.Model.Protocol.Base;
-using _1RM.Service;
-using _1RM.Service.DataSource;
-using _1RM.Service.DataSource.Model;
+using _1RM.Utils;
 using _1RM.Utils.RdpFile;
 using Shawn.Utils;
 
@@ -13,7 +10,7 @@ namespace _1RM.Model.Protocol
     public sealed class RdpApp : ProtocolBaseWithAddressPortUserPwd
     {
         public static string ProtocolName = "RemoteApp";
-        public RdpApp() : base(ProtocolName, "RemoteApp.V1", "RemoteApp", "APP")
+        public RdpApp() : base(ProtocolName, "RemoteApp.V1", "RemoteApp")
         {
             base.Port = "3389";
             base.UserName = "Administrator";
@@ -69,9 +66,9 @@ namespace _1RM.Model.Protocol
         /// To rdp file object
         /// </summary>
         /// <returns></returns>
-        public RdpConfig ToRdpConfig(DataSourceBase dataService)
+        public RdpConfig ToRdpConfig()
         {
-            var rdpConfig = new RdpConfig($"{this.Address}:{this.GetPort()}", this.UserName, dataService.DecryptOrReturnOriginalString(Password));
+            var rdpConfig = new RdpConfig(DisplayName, $"{this.Address}:{this.GetPort()}", this.UserName, UnSafeStringEncipher.DecryptOrReturnOriginalString(Password));
             rdpConfig.AuthenticationLevel = 0;
             rdpConfig.KeyboardHook = 0;
             //rdpConfig.AudioMode = 2;

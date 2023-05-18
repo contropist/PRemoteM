@@ -4,17 +4,15 @@ using System.Text;
 using System.Timers;
 using System.Windows;
 using System.Windows.Forms;
+using _1RM.Utils.RdpFile;
 using MSTSCLib;
 using _1RM.Model;
 using _1RM.Model.Protocol;
-using _1RM.Model.Protocol.Base;
 using _1RM.Service;
-using _1RM.Service.DataSource;
-using _1RM.Service.DataSource.Model;
+using _1RM.Utils;
 using Shawn.Utils;
-using Shawn.Utils.Interface;
 using Shawn.Utils.Wpf;
-using Shawn.Utils.Wpf.Controls;
+using Shawn.Utils.WpfResources.Theme.Styles;
 using Stylet;
 using Color = System.Drawing.Color;
 
@@ -55,7 +53,7 @@ namespace _1RM.View.Host.ProtocolHosts
     public sealed partial class AxMsRdpClient09Host : HostBase, IDisposable
     {
         private AxMsRdpClient9NotSafeForScriptingEx? _rdpClient = null;
-        private readonly DataSourceBase? _dataSource;
+        //private readonly DataSourceBase? _dataSource;
         private readonly RDP _rdpSettings;
         /// <summary>
         /// system scale factor, 100 = 100%, 200 = 200%
@@ -69,7 +67,17 @@ namespace _1RM.View.Host.ProtocolHosts
         private int _retryCount = 0;
         private const int MaxRetryCount = 20;
 
-        public AxMsRdpClient09Host(RDP rdp, int width = 0, int height = 0) : base(rdp, true)
+        public static AxMsRdpClient09Host Create(RDP rdp, int width = 0, int height = 0)
+        {
+            AxMsRdpClient09Host? view = null;
+            Execute.OnUIThreadSync(() =>
+            {
+                view = new AxMsRdpClient09Host(rdp, width, height);
+            });
+            return view!;
+        }
+
+        private AxMsRdpClient09Host(RDP rdp, int width = 0, int height = 0) : base(rdp, true)
         {
             InitializeComponent();
 
@@ -77,8 +85,6 @@ namespace _1RM.View.Host.ProtocolHosts
             GridLoading.Visibility = Visibility.Visible;
 
             _rdpSettings = rdp;
-            // tmp session may get a null source.
-            _dataSource = IoC.Get<DataSourceService>().GetDataSource(_rdpSettings.DataSourceName);
             InitRdp(width, height);
             GlobalEventHelper.OnScreenResolutionChanged += OnScreenResolutionChanged;
         }
@@ -115,7 +121,7 @@ namespace _1RM.View.Host.ProtocolHosts
         private void RdpInitServerInfo()
         {
             #region server info
-            Debug.Assert(_rdpClient != null);
+            Debug.Assert(_rdpClient != null); if (_rdpClient == null) return;
             // server connection info: user name\ psw \ port ...
             _rdpClient.Server = _rdpSettings.Address;
             _rdpClient.Domain = _rdpSettings.Domain;
@@ -136,7 +142,7 @@ namespace _1RM.View.Host.ProtocolHosts
 
 
             var secured = (MSTSCLib.IMsTscNonScriptable)_rdpClient.GetOcx();
-            secured.ClearTextPassword = _dataSource?.DecryptOrReturnOriginalString(_rdpSettings.Password) ?? _rdpSettings.Password;
+            secured.ClearTextPassword = UnSafeStringEncipher.DecryptOrReturnOriginalString(_rdpSettings.Password);
             _rdpClient.FullScreenTitle = _rdpSettings.DisplayName + " - " + _rdpSettings.SubTitle;
 
             #endregion server info
@@ -144,7 +150,7 @@ namespace _1RM.View.Host.ProtocolHosts
 
         private void RdpInitStatic()
         {
-            Debug.Assert(_rdpClient != null);
+            Debug.Assert(_rdpClient != null); if (_rdpClient == null) return;
             SimpleLogHelper.Debug("RDP Host: init Static");
             // enable CredSSP, will use CredSsp if the client supports.
             _rdpClient.AdvancedSettings7.EnableCredSspSupport = true;
@@ -221,11 +227,14 @@ namespace _1RM.View.Host.ProtocolHosts
 
         private void RdpInitConnBar()
         {
-            Debug.Assert(_rdpClient != null);
+            Debug.Assert(_rdpClient != null); if (_rdpClient == null) return;
             SimpleLogHelper.Debug("RDP Host: init conn bar");
             _rdpClient.AdvancedSettings6.DisplayConnectionBar = _rdpSettings.IsFullScreenWithConnectionBar == true;
-            _rdpClient.AdvancedSettings6.ConnectionBarShowPinButton = true;
-            _rdpClient.AdvancedSettings6.PinConnectionBar = false;
+            if (_rdpClient.AdvancedSettings6.DisplayConnectionBar)
+            {
+                _rdpClient.AdvancedSettings6.ConnectionBarShowPinButton = true;
+                _rdpClient.AdvancedSettings6.PinConnectionBar = _rdpSettings.IsPinTheConnectionBarByDefault == true;
+            }
             _rdpClient.AdvancedSettings6.ConnectionBarShowMinimizeButton = true;
             _rdpClient.AdvancedSettings6.ConnectionBarShowRestoreButton = true;
             _rdpClient.AdvancedSettings6.BitmapVirtualCache32BppSize = 48;
@@ -233,46 +242,64 @@ namespace _1RM.View.Host.ProtocolHosts
 
         public void NotifyRedirectDeviceChange(int msg, IntPtr wParam, IntPtr lParam)
         {
-            SimpleLogHelper.Debug($"RDP: NotifyRedirectDeviceChange Receive({msg}, {wParam}, {lParam})");
             const int WM_DEVICECHANGE = 0x0219;
-            // see https://docs.microsoft.com/en-us/windows/win32/termserv/imsrdpclientnonscriptable-notifyredirectdevicechange
+
+            /* from https://docs.microsoft.com/en-us/windows/win32/termserv/imsrdpclientnonscriptable-notifyredirectdevicechange
+             *      https://learn.microsoft.com/en-us/windows/win32/devio/wm-devicechange
+             * wParam case when msg == WM_DEVICECHANGE:
+             * DBT_DEVNODES_CHANGED     0x0007      A device has been added to or removed from the system. param = 0
+             * DBT_DEVICEARRIVAL        0x8000      A device or piece of media has been inserted and is now available. param = A pointer to a structure identifying the device inserted. 
+             */
+            SimpleLogHelper.Debug($"RDP: NotifyRedirectDeviceChange Receive(0x{msg:X}, 0x{wParam:X}, 0x{lParam:X})");
             if (msg == WM_DEVICECHANGE
                 && _rdpClient != null
                 && ((IMsRdpClientNonScriptable3)_rdpClient.GetOcx()).RedirectDynamicDevices)
             {
-                // 0.7 版本迁移到 .NET6 后，出现 lParam 的值超过 int 最大值的情况。之后会出现错误 `Arithmetic operation resulted in an overflow  HwndSourceHook`
-                // rdp.NotifyRedirectDeviceChange((uint)32772, (int)828770869472)
-                // 但这样改了以后 USB 设备重定向功能可能会失效
-                if (lParam.ToInt64() < int.MaxValue && lParam.ToInt64() > int.MinValue)
-                {
-                    SimpleLogHelper.Debug($"RDP: NotifyRedirectDeviceChange({wParam}, {lParam})");
-                    uint iwParam = (uint)(wParam.ToInt32());
-                    int ilParam = (int)(lParam.ToInt32());
-                    ((IMsRdpClientNonScriptable3)_rdpClient.GetOcx()).NotifyRedirectDeviceChange(iwParam, ilParam);
-                }
-                else
-                {
-                    SimpleLogHelper.Warning($"RDP: NotifyRedirectDeviceChange overflow value({wParam}, {lParam})");
-                }
+                new MsRdpClientNonScriptableWrapper(_rdpClient.GetOcx()).NotifyRedirectDeviceChange(wParam, lParam);
             }
         }
 
         private void RdpInitRedirect()
         {
-            Debug.Assert(_rdpClient != null);
+            Debug.Assert(_rdpClient != null); if (_rdpClient == null) return;
             SimpleLogHelper.Debug("RDP Host: init Redirect");
 
-            #region Redirect
-            // Specifies whether dynamically attached PnP devices that are enumerated while in a session are available for redirection. https://docs.microsoft.com/en-us/windows/win32/termserv/imsrdpclientnonscriptable3-redirectdynamicdevices
-            ((IMsRdpClientNonScriptable3)_rdpClient.GetOcx()).RedirectDynamicDevices = _rdpSettings.EnableDiskDrives == true;
-            // Specifies or retrieves whether dynamically attached Plug and Play (PnP) drives that are enumerated while in a session are available for redirection. https://docs.microsoft.com/en-us/windows/win32/termserv/imsrdpclientnonscriptable3-redirectdynamicdrives
-            ((IMsRdpClientNonScriptable3)_rdpClient.GetOcx()).RedirectDynamicDrives = _rdpSettings.EnableDiskDrives == true;
 
-            _rdpClient.AdvancedSettings9.RedirectDrives = _rdpSettings.EnableDiskDrives == true;
+            #region Redirect
+
+            // purpose is not clear
+            ((IMsRdpClientNonScriptable3)_rdpClient.GetOcx()).RedirectDynamicDrives = true; // Specifies or retrieves whether dynamically attached Plug and Play (PnP) drives that are enumerated while in a session are available for redirection. https://docs.microsoft.com/en-us/windows/win32/termserv/imsrdpclientnonscriptable3-redirectdynamicdrives
+
+            if (_rdpSettings.EnableDiskDrives == true 
+                || _rdpSettings.EnableRedirectDrivesPlugIn == true)
+            {
+                _rdpClient.AdvancedSettings9.RedirectDrives = true;
+
+                // enable then usb disk can be redirect
+                if (_rdpSettings.EnableRedirectDrivesPlugIn == true)
+                {
+                    ((IMsRdpClientNonScriptable3)_rdpClient.GetOcx()).RedirectDynamicDevices = true; // Specifies whether dynamically attached PnP devices that are enumerated while in a session are available for redirection. https://docs.microsoft.com/en-us/windows/win32/termserv/imsrdpclientnonscriptable3-redirectdynamicdevices
+                    RedirectDevice();
+                }
+            }
+
+            // disable local disk
+            if (_rdpSettings.EnableDiskDrives == false)
+            {
+                var ocx = (MSTSCLib.IMsRdpClientNonScriptable7)_rdpClient.GetOcx();
+                ocx.DriveCollection.RescanDrives(false);
+                for (int i = 0; i < ocx.DriveCollection.DriveCount; i++)
+                {
+                    ocx.DriveCollection.DriveByIndex[(uint)i].RedirectionState = false;
+                }
+            }
+
+
             _rdpClient.AdvancedSettings9.RedirectClipboard = _rdpSettings.EnableClipboard == true;
             _rdpClient.AdvancedSettings9.RedirectPrinters = _rdpSettings.EnablePrinters == true;
             _rdpClient.AdvancedSettings9.RedirectPOSDevices = _rdpSettings.EnablePorts == true;
             _rdpClient.AdvancedSettings9.RedirectSmartCards = _rdpSettings.EnableSmartCardsAndWinHello == true;
+
 
             if (_rdpSettings.EnableKeyCombinations == true)
             {
@@ -321,9 +348,38 @@ namespace _1RM.View.Host.ProtocolHosts
             #endregion Redirect
         }
 
+
+        public void RedirectDevice()
+        {
+            var ocx = _rdpClient?.GetOcx() as MSTSCLib.IMsRdpClientNonScriptable7;
+            if (ocx == null)
+                return;
+            ocx.CameraRedirConfigCollection.RedirectByDefault = false;
+            if (_rdpSettings.EnableRedirectCameras == true)
+            {
+                // enumerates connected camera devices
+                ocx.CameraRedirConfigCollection.Rescan();
+                for (int i = 0; i < ocx.CameraRedirConfigCollection.Count; i++)
+                {
+                    var camera = ocx.CameraRedirConfigCollection.ByIndex[(uint)i];
+                    camera.Redirected = true;
+                }
+            }
+
+            ocx.DeviceCollection.RescanDevices(false);
+            for (uint i = 0; i < ocx.DeviceCollection.DeviceCount; i++)
+            {
+                var d = ocx.DeviceCollection.DeviceByIndex[i];
+                SimpleLogHelper.Debug(d.FriendlyName);
+                SimpleLogHelper.Debug(d.DeviceDescription);
+                d.RedirectionState = true;
+            }
+        }
+
+
         private void RdpInitDisplay(int width = 0, int height = 0, bool isReconnecting = false)
         {
-            Debug.Assert(_rdpClient != null);
+            Debug.Assert(_rdpClient != null); if (_rdpClient == null) return;
             #region Display
 
             _primaryScaleFactor = ScreenInfoEx.GetPrimaryScreenScaleFactor();
@@ -379,7 +435,7 @@ namespace _1RM.View.Host.ProtocolHosts
                         else
                         {
                             // if isReconnecting == false, then width is Tab width, true width = Tab width * ScaleFactor
-                            if (_rdpSettings.ThisTimeConnWithFullScreen())
+                            if (_rdpSettings.IsThisTimeConnWithFullScreen())
                             {
                                 var size = GetScreenSizeIfRdpIsFullScreen();
                                 _rdpClient.DesktopWidth = size.Width;
@@ -425,7 +481,7 @@ namespace _1RM.View.Host.ProtocolHosts
 
         private void RdpInitPerformance()
         {
-            Debug.Assert(_rdpClient != null);
+            Debug.Assert(_rdpClient != null); if (_rdpClient == null) return;
             SimpleLogHelper.Debug("RDP Host: init Performance");
 
             #region Performance
@@ -485,7 +541,7 @@ namespace _1RM.View.Host.ProtocolHosts
 
         private void RdpInitGateway()
         {
-            Debug.Assert(_rdpClient != null);
+            Debug.Assert(_rdpClient != null); if (_rdpClient == null) return;
             SimpleLogHelper.Debug("RDP Host: init Gateway");
 
             #region Gateway
@@ -525,7 +581,7 @@ namespace _1RM.View.Host.ProtocolHosts
                     case EGatewayLogonMethod.Password:
                         _rdpClient.TransportSettings.GatewayCredsSource = 0; // TSC_PROXY_CREDS_MODE_USERPASS
                         _rdpClient.TransportSettings2.GatewayUsername = _rdpSettings.GatewayUserName;
-                        _rdpClient.TransportSettings2.GatewayPassword = _dataSource?.DecryptOrReturnOriginalString(_rdpSettings.GatewayPassword) ?? _rdpSettings.GatewayPassword;
+                        _rdpClient.TransportSettings2.GatewayPassword = _rdpSettings.GatewayPassword;
                         break;
 
                     default:
@@ -572,25 +628,29 @@ namespace _1RM.View.Host.ProtocolHosts
 
         public override void Conn()
         {
-            Debug.Assert(_rdpClient != null);
-            try
+            Debug.Assert(_rdpClient != null); if (_rdpClient == null) return;
+            Dispatcher.Invoke(() =>
             {
-                if (Status == ProtocolHostStatus.Connected || Status == ProtocolHostStatus.Connecting)
+                try
                 {
-                    return;
+                    if (Status == ProtocolHostStatus.Connected || Status == ProtocolHostStatus.Connecting)
+                    {
+                        return;
+                    }
+
+                    Status = ProtocolHostStatus.Connecting;
+                    GridLoading.Visibility = Visibility.Visible;
+                    RdpHost.Visibility = Visibility.Collapsed;
+                    _rdpClient.Connect();
                 }
-                Status = ProtocolHostStatus.Connecting;
-                GridLoading.Visibility = Visibility.Visible;
-                RdpHost.Visibility = Visibility.Collapsed;
-                _rdpClient.Connect();
-            }
-            catch (Exception e)
-            {
-                Status = ProtocolHostStatus.Connected;
-                GridMessageBox.Visibility = Visibility.Visible;
-                TbMessageTitle.Visibility = Visibility.Collapsed;
-                TbMessage.Text = e.Message;
-            }
+                catch (Exception e)
+                {
+                    Status = ProtocolHostStatus.Connected;
+                    GridMessageBox.Visibility = Visibility.Visible;
+                    TbMessageTitle.Visibility = Visibility.Collapsed;
+                    TbMessage.Text = e.Message;
+                }
+            });
         }
 
         public override void Close()
@@ -607,7 +667,7 @@ namespace _1RM.View.Host.ProtocolHosts
             {
                 return;
             }
-            Debug.Assert(_rdpClient != null);
+            Debug.Assert(_rdpClient != null); if (_rdpClient == null) return;
             _rdpClient.FullScreen = true; // this will invoke OnRequestGoFullScreen -> MakeNormal2FullScreen
         }
 
@@ -711,10 +771,15 @@ namespace _1RM.View.Host.ProtocolHosts
             {
                 Execute.OnUIThreadSync(() =>
                 {
-                    if (_rdpClient?.Connected > 0)
-                        _rdpClient.Disconnect();
-                    _rdpClient?.Dispose();
-                    _rdpClient = null;
+                    try
+                    {
+                        _rdpClient?.Dispose();
+                        _rdpClient = null;
+                    }
+                    catch (Exception e)
+                    {
+                        SimpleLogHelper.Error(e);
+                    }
                 });
             }
             SimpleLogHelper.Debug("RDP Host: _rdpClient.Dispose()");
@@ -770,17 +835,19 @@ namespace _1RM.View.Host.ProtocolHosts
         {
             if (_rdpSettings.RdpFullScreenFlag == ERdpFullScreenFlag.EnableFullAllScreens)
             {
-                IoC.Get<LocalityService>().RdpLocalityUpdate(_rdpSettings.Id.ToString(), true, -1);
+                if (_rdpSettings.IsTmpSession() == false)
+                    IoC.Get<LocalityService>().RdpLocalityUpdate(_rdpSettings.Id, true, -1);
                 return ScreenInfoEx.GetAllScreensSize();
             }
 
-            int screenIndex = IoC.Get<LocalityService>().RdpLocalityGet(_rdpSettings.Id.ToString())?.FullScreenLastSessionScreenIndex ?? -1;
+            int screenIndex = IoC.Get<LocalityService>().RdpLocalityGet(_rdpSettings.Id)?.FullScreenLastSessionScreenIndex ?? -1;
             if (screenIndex < 0
                 || screenIndex >= System.Windows.Forms.Screen.AllScreens.Length)
             {
                 screenIndex = this.ParentWindow != null ? ScreenInfoEx.GetCurrentScreen(this.ParentWindow).Index : ScreenInfoEx.GetCurrentScreenBySystemPosition(ScreenInfoEx.GetMouseSystemPosition()).Index;
             }
-            IoC.Get<LocalityService>().RdpLocalityUpdate(_rdpSettings.Id.ToString(), true, screenIndex);
+            if (_rdpSettings.IsTmpSession() == false)
+                IoC.Get<LocalityService>().RdpLocalityUpdate(_rdpSettings.Id, true, screenIndex);
             return System.Windows.Forms.Screen.AllScreens[screenIndex].Bounds;
         }
 
@@ -788,10 +855,10 @@ namespace _1RM.View.Host.ProtocolHosts
         /// set the parent window of rdp, if parent window is FullScreenWindowView and it's loaded, go full screen
         /// </summary>
         /// <param name="value"></param>
-        public override void SetParentWindow(Window? value)
+        public override void SetParentWindow(WindowBase? value)
         {
             base.SetParentWindow(value);
-            if (value is FullScreenWindowView && value.IsLoaded)
+            if (value is FullScreenWindowView && value.IsLoaded && value.IsClosed == false)
             {
                 this.GoFullScreen();
             }

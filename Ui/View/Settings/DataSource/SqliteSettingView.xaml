@@ -6,20 +6,17 @@
                          xmlns:local="clr-namespace:_1RM.View.Settings.DataSource"
                          xmlns:settings="clr-namespace:_1RM.View.Settings"
                          xmlns:styles="clr-namespace:Shawn.Utils.WpfResources.Theme.Styles;assembly=Shawn.Utils.WpfResources"
-                         xmlns:attachProperty="clr-namespace:Shawn.Utils.WpfResources.Theme.AttachProperty;assembly=Shawn.Utils.WpfResources"
                          xmlns:s="https://github.com/canton7/Stylet"
                          mc:Ignorable="d" 
                          ShowInTaskbar="False"
-                         WindowStyle="None"
                          SizeToContent="WidthAndHeight" 
+                         WindowStyle="None"
                          Background="Transparent"
                          AllowsTransparency="True"
                          d:DataContext="{d:DesignInstance local:SqliteSettingViewModel}">
     <Window.Resources>
-        <settings:StringIsEmpty2BoolConverter x:Key="StringIsEmpty2BoolConverter"></settings:StringIsEmpty2BoolConverter>
-
         <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{DynamicResource BackgroundTextBrush}"></Setter>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"></Setter>
             <Setter Property="VerticalAlignment" Value="Center"></Setter>
             <Setter Property="HorizontalAlignment" Value="Right"></Setter>
             <Setter Property="TextAlignment" Value="Right"></Setter>
@@ -85,58 +82,6 @@
                         <StackPanel Grid.Row="1" Grid.Column="2" Orientation="Horizontal">
                             <Button Margin="5 5 0 15" Content="{DynamicResource Select}" Command="{Binding CmdSelectDbPath}"></Button>
                         </StackPanel>
-
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{DynamicResource system_options_data_security_rsa_title}"></TextBlock>
-                        <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                            <Button Margin="0 5 0 15" Command="{Binding CmdGenRsaKey}"
-                                Content="{DynamicResource system_options_data_security_rsa_encrypt}">
-                                <Button.Style>
-                                    <Style TargetType="Button" BasedOn="{StaticResource ButtonAccentStyle}">
-                                        <Setter Property="IsEnabled" Value="False"></Setter>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding DbRsaPublicKey, Converter={StaticResource StringIsEmpty2BoolConverter}}" Value="true">
-                                                <Setter Property="IsEnabled" Value="True"></Setter>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Button.Style>
-                            </Button>
-                            <Button Margin="10 5 0 15" Command="{Binding CmdClearRsaKey}"
-                                Content="{DynamicResource system_options_data_security_rsa_decrypt}">
-                                <Button.Style>
-                                    <Style TargetType="Button" BasedOn="{StaticResource ButtonAccentStyle}">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding DbRsaPublicKey, Converter={StaticResource StringIsEmpty2BoolConverter}}" Value="true">
-                                                <Setter Property="IsEnabled" Value="False"></Setter>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Button.Style>
-                            </Button>
-                        </StackPanel>
-
-                        <TextBlock Grid.Row="3" Grid.Column="0" Text="{DynamicResource system_options_data_security_rsa_public_key}"></TextBlock>
-                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding DbRsaPublicKey, Mode=OneWay}" 
-                                 VerticalContentAlignment="Center" 
-                                 HorizontalAlignment="Left" MinWidth="280"
-                                 TextWrapping="Wrap" Height="150" MaxWidth="500"
-                                 Focusable="False"
-                                 IsReadOnly="True"></TextBox>
-
-
-                        <TextBlock Grid.Row="4" Grid.Column="0" Text="{DynamicResource system_options_data_security_rsa_private_key_path}"></TextBlock>
-                        <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding DbRsaPrivateKeyPath, Mode=OneWay}" VerticalContentAlignment="Center" IsReadOnly="True"></TextBox>
-                        <Button Grid.Row="4" Grid.Column="2" HorizontalAlignment="Left" Content="{DynamicResource Select}" Command="{Binding CmdSelectRsaPrivateKey}" Margin="5 5 0 15">
-                            <Button.Style>
-                                <Style TargetType="Button" BasedOn="{StaticResource ButtonPrimaryStyle}">
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding DbRsaPublicKey, Converter={StaticResource StringIsEmpty2BoolConverter}}" Value="true">
-                                            <Setter Property="IsEnabled" Value="False"></Setter>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Button.Style>
-                        </Button>
                     </Grid>
 
                     <StackPanel Margin="0 20" Orientation="Horizontal" HorizontalAlignment="Center">
@@ -170,6 +115,19 @@
 
             </Grid>
 
+            <Grid>
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Setter Property="Visibility" Value="Visible"></Setter>
+                        <Setter Property="Background" Value="Transparent"></Setter>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Path=TopLevelViewModel, Mode=OneWay}" Value="{x:Null}">
+                                <Setter Property="Visibility" Value="Collapsed"></Setter>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
+            </Grid>
             <ContentControl s:View.Model="{Binding TopLevelViewModel}"></ContentControl>
         </Grid>
     </Border>

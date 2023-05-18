@@ -43,8 +43,10 @@ namespace _1RM.Model.Protocol.FileTransmit.Transmitters.TransmissionController
         public string TransmitItemDstDirectoryPath { get; private set; } = "";
 
         private readonly ILanguageService _languageService;
+        public readonly string ConnectionId;
 
-        public TransmitTask(ILanguageService languageService, ITransmitter trans, string destinationDirectoryPath, FileInfo[]? fis, DirectoryInfo[]? dis = null)
+
+        public TransmitTask(ILanguageService languageService, ITransmitter trans, string connectionId, string destinationDirectoryPath, FileInfo[]? fis, DirectoryInfo[]? dis = null)
         {
             Debug.Assert(fis != null || dis != null);
             TransmitTaskStatus = ETransmitTaskStatus.WaitTransmitStart;
@@ -54,6 +56,7 @@ namespace _1RM.Model.Protocol.FileTransmit.Transmitters.TransmissionController
             _destinationDirectoryPath = destinationDirectoryPath.TrimEnd('/', '\\');
 
             _fis = fis;
+            ConnectionId = connectionId;
             _languageService = languageService;
             _dis = dis;
 
@@ -74,22 +77,21 @@ namespace _1RM.Model.Protocol.FileTransmit.Transmitters.TransmissionController
                     TransmitItemNames += di.Name + ", ";
                 }
             }
-            Debug.Assert(TransmitItemNames != null);
             TransmitItemNames = TransmitItemNames.Trim(',', ' ');
             RaisePropertyChanged(nameof(TransmitItemDstDirectoryPath));
             RaisePropertyChanged(nameof(TransmitItemSrcDirectoryPath));
             RaisePropertyChanged(nameof(TransmitItemNames));
         }
 
-        public TransmitTask(ILanguageService languageService, ITransmitter trans, string destinationDirectoryPath, RemoteItem[]? ris)
+        public TransmitTask(ILanguageService languageService, ITransmitter trans, string connectionId, string destinationDirectoryPath, RemoteItem[] ris)
         {
-            Debug.Assert(ris != null);
             TransmitTaskStatus = ETransmitTaskStatus.WaitTransmitStart;
             TransmissionType = ETransmissionType.ServerToHost;
             this._transOrg = trans;
             _destinationDirectoryPath = destinationDirectoryPath.TrimEnd('/', '\\');
 
             _ris = ris;
+            ConnectionId = connectionId;
             _languageService = languageService;
 
             TransmitItemDstDirectoryPath = destinationDirectoryPath;
@@ -103,7 +105,7 @@ namespace _1RM.Model.Protocol.FileTransmit.Transmitters.TransmissionController
                 TransmitItemNames += item.Name + ", ";
             }
             Debug.Assert(TransmitItemNames != null);
-            TransmitItemNames = TransmitItemNames.Trim(',', ' ');
+            TransmitItemNames = TransmitItemNames!.Trim(',', ' ');
             RaisePropertyChanged(nameof(TransmitItemDstDirectoryPath));
             RaisePropertyChanged(nameof(TransmitItemSrcDirectoryPath));
             RaisePropertyChanged(nameof(TransmitItemNames));
@@ -152,7 +154,8 @@ namespace _1RM.Model.Protocol.FileTransmit.Transmitters.TransmissionController
                 var dst = Items?.FirstOrDefault()?.DstPath;
                 if (TransmissionType == ETransmissionType.HostToServer)
                 {
-                    if (!string.IsNullOrWhiteSpace(dst)
+                    if (dst != null
+                        && !string.IsNullOrWhiteSpace(dst)
                         && dst.LastIndexOf("/", StringComparison.Ordinal) > 0)
                     {
                         return dst.Substring(0, dst.LastIndexOf("/", StringComparison.Ordinal));
@@ -288,8 +291,7 @@ namespace _1RM.Model.Protocol.FileTransmit.Transmitters.TransmissionController
                 if (!topDirectory.Exists)
                     return;
 
-                Debug.Assert(topDirectory?.Parent?.FullName != null);
-                var srcParentDirPath = topDirectory.Parent.FullName.TrimEnd('/', '\\');
+                var srcParentDirPath = topDirectory.Parent!.FullName.TrimEnd('/', '\\');
 
                 var dis = new Queue<DirectoryInfo>();
                 var allItems = new Queue<TransmitItem>();
@@ -334,7 +336,7 @@ namespace _1RM.Model.Protocol.FileTransmit.Transmitters.TransmissionController
 
             try
             {
-                if (!_trans.Exists(topItem.FullName))
+                if (_trans?.Exists(topItem.FullName) != true)
                     return;
 
                 var srcParentDirPath = topItem.FullName.TrimEnd('/', '\\');
@@ -528,9 +530,10 @@ namespace _1RM.Model.Protocol.FileTransmit.Transmitters.TransmissionController
                 }
             }
 
+            var vm = IoC.Get<SessionControlService>().GetTabByConnectionId(ConnectionId)?.GetViewModel();
             if (existedFiles > 0
             && false == MessageBoxHelper.Confirm(_languageService.Translate("file_transmit_host_warning_same_names", existedFiles.ToString()),
-                _languageService.Translate("file_transmit_host_warning_same_names_title"), useNativeBox: true))
+                _languageService.Translate("file_transmit_host_warning_same_names_title"), ownerViewModel: vm == null ? this : vm))
             {
                 return false;
             }
@@ -568,14 +571,21 @@ namespace _1RM.Model.Protocol.FileTransmit.Transmitters.TransmissionController
                 item.TransmittedSize = 0;
                 _trans?.DownloadFile(item.SrcPath, item.DstPath, readLength =>
                 {
-                    DataTransmitting(ref item, readLength);
+                    try
+                    {
+                        DataTransmitting(ref item, readLength);
 
-                    var add = readLength - item.TransmittedSize;
-                    item.TransmittedSize = readLength;
-                    TransmittedByteLength += add;
-                    _transmittedDataLength.Enqueue(new Tuple<DateTime, ulong>(DateTime.Now, add));
-                    RaisePropertyChanged(nameof(TransmitSpeed));
-                    SimpleLogHelper.Debug($"{DateTime.Now}: {TransmittedByteLength}done, {TransmittedPercentage}%");
+                        var add = readLength - item.TransmittedSize;
+                        item.TransmittedSize = readLength;
+                        TransmittedByteLength += add;
+                        _transmittedDataLength.Enqueue(new Tuple<DateTime, ulong>(DateTime.Now, add));
+                        RaisePropertyChanged(nameof(TransmitSpeed));
+                        SimpleLogHelper.Debug($"{DateTime.Now}: {TransmittedByteLength}done, {TransmittedPercentage}%");
+                    }
+                    catch (Exception e)
+                    {
+                        SimpleLogHelper.Error(e);
+                    }
                 }, _cancellationSource.Token);
             }
         }

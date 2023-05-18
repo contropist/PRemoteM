@@ -1,21 +1,17 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
-using System.Windows;
-using _1RM.Controls;
 using _1RM.Model;
 using _1RM.Service;
 using _1RM.Service.DataSource;
+using _1RM.Service.DataSource.DAO;
 using _1RM.Service.DataSource.Model;
 using _1RM.Utils;
+using _1RM.View.Utils;
 using Shawn.Utils;
 using Shawn.Utils.Interface;
 using Shawn.Utils.Wpf;
-using Stylet;
+using Shawn.Utils.Wpf.FileSystem;
 
 namespace _1RM.View.Settings.DataSource
 {
@@ -37,13 +33,6 @@ namespace _1RM.View.Settings.DataSource
                 _sourceConfigs.Add(config);
             }
         }
-
-
-        private RelayCommand? _cmdApply;
-        public RelayCommand CmdApply => _cmdApply ??= new RelayCommand((o) =>
-        {
-            // 保存配置修改
-        });
 
         public int DatabaseCheckPeriod
         {
@@ -77,51 +66,53 @@ namespace _1RM.View.Settings.DataSource
             {
                 return _cmdAdd ??= new RelayCommand((o) =>
                 {
-                    if (o is not string type)
+                    if (o is not string type
+                        || _configurationService.AdditionalDataSource.Count >= 2)
                     {
                         return;
                     }
 
+                    DataSourceBase? dataSource = null;
                     switch (type.ToLower())
                     {
                         case "sqlite":
                             {
                                 var vm = new SqliteSettingViewModel(this);
-                                if (IoC.Get<IWindowManager>().ShowDialog(vm, IoC.Get<MainWindowViewModel>()) == true)
-                                {
-                                    SourceConfigs.Add(vm.New);
-                                    _configurationService.AdditionalDataSource.Add(vm.New);
-                                    _configurationService.Save();
-
-                                    Task.Factory.StartNew(() =>
-                                    {
-                                        _dataSourceService.AddOrUpdateDataSource(vm.New);
-                                        GlobalEventHelper.ShowProcessingRing?.Invoke(Visibility.Collapsed, "");
-                                    });
-                                }
+                                if (MaskLayerController.ShowDialogWithMask(vm, doNotHideMaskIfReturnTrue: true) != true)
+                                    return;
+                                dataSource = vm.New;
                                 break;
                             }
                         case "mysql":
                             {
                                 var vm = new MysqlSettingViewModel(this);
-                                if (IoC.Get<IWindowManager>().ShowDialog(vm, IoC.Get<MainWindowViewModel>()) == true)
-                                {
-                                    SourceConfigs.Add(vm.New);
-                                    _configurationService.AdditionalDataSource.Add(vm.New);
-                                    _configurationService.Save();
-
-                                    Task.Factory.StartNew(() =>
-                                    {
-                                        _dataSourceService.AddOrUpdateDataSource(vm.New);
-                                        GlobalEventHelper.ShowProcessingRing?.Invoke(Visibility.Collapsed, "");
-                                    });
-                                }
+                                if (MaskLayerController.ShowDialogWithMask(vm, doNotHideMaskIfReturnTrue: true) != true)
+                                    return;
+                                dataSource = vm.New;
                                 break;
                             }
                         default:
                             throw new ArgumentOutOfRangeException($"{type} is not a vaild type");
                     }
-                });
+
+                    SourceConfigs.Add(dataSource);
+                    _configurationService.AdditionalDataSource.Add(dataSource);
+                    _configurationService.Save();
+                    Task.Factory.StartNew(() =>
+                    {
+                        try
+                        {
+                            _dataSourceService.AddOrUpdateDataSource(dataSource);
+                        }
+                        finally
+                        {
+                            MaskLayerController.HideMask(IoC.Get<MainWindowViewModel>());
+                        }
+                    });
+                }, _ =>
+                        IoPermissionHelper.HasWritePermissionOnFile(AppPathHelper.Instance.ProfileAdditionalDataSourceJsonPath)
+                        && _configurationService.AdditionalDataSource.Count < 2
+                    );
             }
         }
 
@@ -135,47 +126,30 @@ namespace _1RM.View.Settings.DataSource
             {
                 return _cmdEdit ??= new RelayCommand((o) =>
                 {
-                    switch (o)
+                    if (o is not DataSourceBase dataSource) return;
+
+                    object? vm = dataSource switch
                     {
-                        case SqliteSource sqliteConfig:
-                            {
-                                var vm = new SqliteSettingViewModel(this, sqliteConfig);
-                                if (IoC.Get<IWindowManager>().ShowDialog(vm, IoC.Get<MainWindowViewModel>()) == true)
-                                {
-                                    GlobalEventHelper.ShowProcessingRing?.Invoke(Visibility.Visible, "");
-                                    _configurationService.Save();
-                                    Task.Factory.StartNew(() =>
-                                    {
-                                        _dataSourceService.AddOrUpdateDataSource(sqliteConfig);
-                                        GlobalEventHelper.ShowProcessingRing?.Invoke(Visibility.Collapsed, "");
-                                    });
-                                }
-                                break;
-                            }
-                        case MysqlSource mysqlConfig:
-                            {
-                                var vm = new MysqlSettingViewModel(this, mysqlConfig);
-                                if (IoC.Get<IWindowManager>().ShowDialog(vm, IoC.Get<MainWindowViewModel>()) == true)
-                                {
-                                    GlobalEventHelper.ShowProcessingRing?.Invoke(Visibility.Visible, "");
-                                    _configurationService.Save();
-                                    Task.Factory.StartNew(() =>
-                                    {
-                                        try
-                                        {
-                                            _dataSourceService.AddOrUpdateDataSource(mysqlConfig);
-                                        }
-                                        finally
-                                        {
-                                            GlobalEventHelper.ShowProcessingRing?.Invoke(Visibility.Collapsed, "");
-                                        }
-                                    });
-                                }
-                                break;
-                            }
-                        default:
-                            throw new NotSupportedException($"{o?.GetType()} is not a supported type");
-                    }
+                        SqliteSource sqliteConfig => new SqliteSettingViewModel(this, sqliteConfig),
+                        MysqlSource mysqlConfig => new MysqlSettingViewModel(this, mysqlConfig),
+                        _ => throw new NotSupportedException($"{o?.GetType()} is not a supported type")
+                    };
+
+                    if (MaskLayerController.ShowDialogWithMask(vm, doNotHideMaskIfReturnTrue: true) != true)
+                        return;
+
+                    _configurationService.Save();
+                    Task.Factory.StartNew(() =>
+                    {
+                        try
+                        {
+                            _dataSourceService.AddOrUpdateDataSource(dataSource);
+                        }
+                        finally
+                        {
+                            MaskLayerController.HideMask(IoC.Get<MainWindowViewModel>());
+                        }
+                    });
                 });
             }
         }
@@ -205,12 +179,51 @@ namespace _1RM.View.Settings.DataSource
                             Task.Factory.StartNew(() =>
                             {
                                 _dataSourceService.RemoveDataSource(configBase.DataSourceName);
-                                GlobalEventHelper.ShowProcessingRing?.Invoke(Visibility.Collapsed, "");
                             });
                         }
+                    }
+                }, _ =>
+                    IoPermissionHelper.HasWritePermissionOnFile(AppPathHelper.Instance.ProfileAdditionalDataSourceJsonPath));
+            }
+        }
+
+
+
+
+        private RelayCommand? _cmdRefreshDataSource;
+        public RelayCommand CmdRefreshDataSource
+        {
+            get
+            {
+                return _cmdRefreshDataSource ??= new RelayCommand((o) =>
+                {
+                    if (o is DataSourceBase dataSource)
+                    {
+                        MaskLayerController.ShowProcessingRing();
+                        if (dataSource.Status != EnumDatabaseStatus.OK)
+                        {
+                            dataSource.ReconnectTime = DateTime.MinValue;
+                        }
+                        else
+                        {
+                            IoC.Get<GlobalData>().CheckUpdateTime = DateTime.MinValue;
+                        }
+
+                        Task.Factory.StartNew(() =>
+                        {
+                            try
+                            {
+                                _dataSourceService.AddOrUpdateDataSource(dataSource);
+                            }
+                            finally
+                            {
+                                MaskLayerController.HideMask();
+                            }
+                        });
                     }
                 });
             }
         }
+
     }
 }

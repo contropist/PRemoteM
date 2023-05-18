@@ -56,11 +56,11 @@ public class ExternalRunnerSettingsViewModel
                     {
                         if (ExternalRunner.OwnerProtocolName == SFTP.ProtocolName)
                         {
-                            ExternalRunner.Arguments = "sftp://%RM_USERNAME%:%RM_PASSWORD%@%RM_HOSTNAME%:%RM_PORT%";
+                            ExternalRunner.Arguments = "sftp://%USERNAME%:%PASSWORD%@%HOSTNAME%:%PORT%";
                         }
                         if (ExternalRunner.OwnerProtocolName == FTP.ProtocolName)
                         {
-                            ExternalRunner.Arguments = "ftp://%RM_USERNAME%:%RM_PASSWORD%@%RM_HOSTNAME%:%RM_PORT%";
+                            ExternalRunner.Arguments = "ftp://%USERNAME%:%PASSWORD%@%HOSTNAME%:%PORT%";
                         }
                         ExternalRunner.RunWithHosting = true;
                     }
@@ -68,33 +68,33 @@ public class ExternalRunnerSettingsViewModel
                     {
                         if (ExternalRunner.OwnerProtocolName == SFTP.ProtocolName)
                         {
-                            ExternalRunner.Arguments = "sftp://%RM_USERNAME%:%RM_PASSWORD%@%RM_HOSTNAME%";
+                            ExternalRunner.Arguments = "sftp://%USERNAME%:%PASSWORD%@%HOSTNAME%";
                         }
                         if (ExternalRunner.OwnerProtocolName == FTP.ProtocolName)
                         {
-                            ExternalRunner.Arguments = "ftp://%RM_USERNAME%:%RM_PASSWORD%@%RM_HOSTNAME%";
+                            ExternalRunner.Arguments = "ftp://%USERNAME%:%PASSWORD%@%HOSTNAME%";
                         }
-                        ExternalRunner.Arguments = @"%RM_HOSTNAME%::%RM_PORT% -password=%RM_PASSWORD% -scale=auto";
+                        ExternalRunner.Arguments = @"%HOSTNAME%::%PORT% -password=%PASSWORD% -scale=auto";
                         ExternalRunner.RunWithHosting = false;
                     }
                     else if (name == "VpxClient.exe".ToLower())
                     {
-                        ExternalRunner.Arguments = @"-s %RM_HOSTNAME% -u %RM_USERNAME% -p %RM_PASSWORD%";
+                        ExternalRunner.Arguments = @"-s %HOSTNAME% -u %USERNAME% -p %PASSWORD%";
                         ExternalRunner.RunWithHosting = true;
                     }
                     else if (name.IndexOf("kitty", StringComparison.Ordinal) >= 0 || name.IndexOf("putty", StringComparison.Ordinal) >= 0)
                     {
-                        ExternalRunner.Arguments = @"-ssh %RM_HOSTNAME% -P %RM_PORT% -l %RM_USERNAME% -pw %RM_PASSWORD% -%RM_SSH_VERSION% -cmd ""%RM_STARTUP_AUTO_COMMAND%""";
+                        ExternalRunner.Arguments = @"-ssh %HOSTNAME% -P %PORT% -l %USERNAME% -pw %PASSWORD% -%SSH_VERSION% -cmd ""%STARTUP_AUTO_COMMAND%""";
                         ExternalRunner.RunWithHosting = true;
                     }
                     else if (name == "tvnviewer.exe".ToLower())
                     {
-                        ExternalRunner.Arguments = @"%RM_HOSTNAME%::%RM_PORT% -password=%RM_PASSWORD% -scale=auto";
+                        ExternalRunner.Arguments = @"%HOSTNAME%::%PORT% -password=%PASSWORD% -scale=auto";
                         ExternalRunner.RunWithHosting = true;
                     }
                     else if (name == "vncviewer.exe".ToLower() || path.ToLower().IndexOf("uvnc", StringComparison.Ordinal) > 0)
                     {
-                        ExternalRunner.Arguments = @"%RM_HOSTNAME%::%RM_PORT% -password=%RM_PASSWORD% -scale=auto";
+                        ExternalRunner.Arguments = @"%HOSTNAME%::%PORT% -password=%PASSWORD% -scale=auto";
                         ExternalRunner.RunWithHosting = false;
                     }
                 }
@@ -125,7 +125,7 @@ public class ExternalRunnerSettingsViewModel
                 if (o is ExternalRunner.ObservableKvp<string, string> item
                     && ExternalRunner.EnvironmentVariables.Contains(item)
                     && ((item.Key == "" && item.Value == "")
-                        || true == MessageBoxHelper.Confirm(IoC.Get<ILanguageService>().Translate("confirm_to_delete")))
+                        || true == MessageBoxHelper.Confirm(IoC.Get<ILanguageService>().Translate("confirm_to_delete"), ownerViewModel: IoC.Get<MainWindowViewModel>()))
                    )
                 {
                     ExternalRunner.EnvironmentVariables.Remove(item);
@@ -153,9 +153,9 @@ Runner for {ExternalRunner.OwnerProtocolName}
 ```
 "
                         );
-                    if (MessageBoxHelper.Confirm($"You runner({ExternalRunner.Name}) is copied to clipboard, do you want to share to Github?", "Share "))
+                    if (MessageBoxHelper.Confirm($"You runner({ExternalRunner.Name}) is copied to clipboard, do you want to share to Github?", "Share", ownerViewModel: IoC.Get<MainWindowViewModel>()))
                     {
-                        HyperlinkHelper.OpenUriBySystem("https://github.com/1Remote/1Remote/wiki/Share-your-favorite-runner");
+                        HyperlinkHelper.OpenUriBySystem("https://github.com/1Remote/1Remote/issues/new?assignees=VShawn&labels=area-config&template=runner_sharing.md&title=");
                     }
                 }
                 catch

@@ -9,6 +9,7 @@
                         xmlns:editor="clr-namespace:_1RM.View.Editor"
                         xmlns:model="clr-namespace:_1RM.Model"
                         xmlns:protocol="clr-namespace:_1RM.Model.Protocol"
+                        xmlns:alternativeCredential="clr-namespace:_1RM.View.Editor.Forms.AlternativeCredential"
                         mc:Ignorable="d"
                         d:DataContext="{d:DesignInstance protocol:VNC}"
                         d:DesignHeight="1450" d:DesignWidth="800">
@@ -22,12 +23,12 @@
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="{DynamicResource Hostname}"></TextBlock>
                     <Grid Style="{StaticResource EditorRowGridInput}">
-                        <TextBox Text="{Binding Address,UpdateSourceTrigger=PropertyChanged}"
+                        <TextBox Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}"
                                                                   Tag="e.g. 192.168.0.101"></TextBox>
                     </Grid>
                     <TextBlock Style="{StaticResource EditorRowGridTitle}" Width="60" Text="{DynamicResource Port}"></TextBlock>
                     <Grid Style="{StaticResource EditorRowGridInput}">
-                        <TextBox MinWidth="50" Text="{Binding Port,UpdateSourceTrigger=PropertyChanged,ValidatesOnExceptions=True,NotifyOnValidationError=True}"
+                        <TextBox MinWidth="50" Text="{Binding Port, UpdateSourceTrigger=PropertyChanged,ValidatesOnExceptions=True,NotifyOnValidationError=True}"
                                  HorizontalAlignment="Left"
                                  InputMethod.IsInputMethodEnabled="False"
                                  InputScope="Number"
@@ -40,22 +41,25 @@
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="{DynamicResource Password}"></TextBlock>
                     <Grid Style="{StaticResource EditorRowGridInput}">
-                        <PasswordBox attachProperty:PasswordBoxAttachProperty.Password="{Binding Password,UpdateSourceTrigger=PropertyChanged,Mode=TwoWay}"/>
+                        <PasswordBox attachProperty:PasswordBoxAttachProperty.Password="{Binding Password, UpdateSourceTrigger=PropertyChanged,Mode=TwoWay}"/>
                     </Grid>
                 </StackPanel>
             </Grid>
 
+            <alternativeCredential:AlternativeCredentialListControl></alternativeCredential:AlternativeCredentialListControl>
+
+
             <Grid Style="{StaticResource EditorRowGrid}">
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="{DynamicResource server_editor_display_window_resize_mode}"></TextBlock>
+                    <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="{DynamicResource Resolution}"></TextBlock>
                     <Grid Style="{StaticResource EditorRowGridInput}">
                         <Grid.Resources>
                             <forms:ConverterEVncWindowResizeMode x:Key="ConverterEVncWindowResizeMode" />
                         </Grid.Resources>
                         <ComboBox Name="ComboBoxResolution" SelectedIndex="{Binding VncWindowResizeMode, Converter={StaticResource ConverterEVncWindowResizeMode}}">
-                            <ComboBoxItem Content="{DynamicResource server_editor_display_window_resize_mode_stretch}" />
-                            <ComboBoxItem Content="{DynamicResource server_editor_display_window_resize_mode_fixed}" />
-                            <ComboBoxItem Visibility="{Binding VncWindowResizeMode, Converter={StaticResource ConverterEqual2Visible}, ConverterParameter={x:Null}}" Content="{DynamicResource server_editor_different_options}" />
+                            <ComboBoxItem Content="{DynamicResource 'Custom resolution (stretch)'}" />
+                            <ComboBoxItem Content="{DynamicResource 'Custom resolution (fixed)'}" />
+                            <ComboBoxItem Visibility="{Binding VncWindowResizeMode, Converter={StaticResource ConverterEqual2Visible}, ConverterParameter={x:Null}}" Content="{Binding ServerEditorDifferentOptions}" />
                         </ComboBox>
                     </Grid>
                 </StackPanel>
@@ -68,7 +72,7 @@
                         <StackPanel>
                             <TextBlock TextWrapping="WrapWithOverflow" Foreground="{DynamicResource AccentMidBrush}">
                                 <Run>Caution: RFB protocol over 3.8 are proprietary. If you would like using RFB 3.8+, you have to try your own VNC runner:</Run>
-                                <Hyperlink NavigateUri="https://github.com/1Remote/1Remote/wiki/%5BProtocol%5D--Protocol-Runners" TextDecorations="{x:Null}" controls:HyperlinkHelper.IsOpenExternal="True">
+                                <Hyperlink NavigateUri="https://1remote.github.io/usage/protocol/runner/" TextDecorations="{x:Null}" controls:HyperlinkHelper.IsOpenExternal="True">
                                     [More details]
                                 </Hyperlink>
                             </TextBlock>

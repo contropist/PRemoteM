@@ -8,7 +8,9 @@ using System.Windows.Data;
 using _1RM.Controls;
 using _1RM.Model;
 using _1RM.Model.Protocol.Base;
+using _1RM.Service;
 using _1RM.Utils;
+using _1RM.View.Utils;
 using Shawn.Utils;
 using Shawn.Utils.Interface;
 using Shawn.Utils.Wpf;
@@ -18,12 +20,7 @@ namespace _1RM.View.ServerList
 {
     public class TagsPanelViewModel : NotifyPropertyChangedBaseScreen
     {
-        public GlobalData AppData { get; }
-        public TagsPanelViewModel(GlobalData appData)
-        {
-            AppData = appData;
-        }
-
+        public GlobalData GlobalData => IoC.Get<GlobalData>();
 
         private bool _filterIsFocused = false;
         public bool FilterIsFocused
@@ -68,14 +65,14 @@ namespace _1RM.View.ServerList
                     if (o is not Tag obj)
                         return;
 
-                    var protocolServerBases = AppData.VmItemList.Where(x => x.Server.Tags.Contains(obj.Name) && x.IsEditable).Select(x => x.Server).ToArray();
+                    var protocolServerBases = IoC.Get<GlobalData>().VmItemList.Where(x => x.Server.Tags.Contains(obj.Name) && x.IsEditable).Select(x => x.Server).ToArray();
 
                     if (protocolServerBases.Any() != true)
                     {
                         return;
                     }
 
-                    if (false == MessageBoxHelper.Confirm(IoC.Get<ILanguageService>().Translate("confirm_to_delete")))
+                    if (false == MessageBoxHelper.Confirm(IoC.Get<ILanguageService>().Translate("confirm_to_delete"), ownerViewModel: IoC.Get<MainWindowViewModel>()))
                         return;
 
                     foreach (var server in protocolServerBases)
@@ -85,14 +82,16 @@ namespace _1RM.View.ServerList
                             server.Tags.Remove(obj.Name);
                         }
                     }
-                    AppData.UpdateServer(protocolServerBases);
+                    IoC.Get<GlobalData>().UpdateServer(protocolServerBases);
+
+
                     var tagFilters = IoC.Get<ServerListPageViewModel>().TagFilters;
                     var delete = tagFilters.FirstOrDefault(x => x.TagName == obj.Name);
                     if (delete != null)
                     {
                         var tmp = tagFilters.ToList();
                         tmp.Remove(delete);
-                        tagFilters = new List<TagFilter>(tmp);
+                        IoC.Get<ServerListPageViewModel>().TagFilters = new List<TagFilter>(tmp);
                     }
                 });
             }
@@ -114,14 +113,27 @@ namespace _1RM.View.ServerList
 
                     string oldTagName = obj.Name;
 
-                    var protocolServerBases = AppData.VmItemList.Where(x => x.Server.Tags.Contains(oldTagName) && x.IsEditable).Select(x => x.Server).ToArray();
+                    var protocolServerBases = IoC.Get<GlobalData>().VmItemList.Where(x => x.Server.Tags.Contains(oldTagName) && x.IsEditable).Select(x => x.Server).ToArray();
 
                     if (protocolServerBases.Any() != true)
                     {
                         return;
                     }
 
-                    string newTagName = InputWindow.InputBox(IoC.Get<ILanguageService>().Translate("Tags"), IoC.Get<ILanguageService>().Translate("Tags"), obj.Name);
+                    var newTagName = InputBoxViewModel.GetValue(IoC.Get<ILanguageService>().Translate("Tags"), new Func<string, string>((str) =>
+                    {
+                        if (string.IsNullOrWhiteSpace(str))
+                            return IoC.Get<ILanguageService>().Translate("Can not be empty!");
+                        if (str == obj.Name)
+                            return "";
+                        if (IoC.Get<GlobalData>().TagList.Any(x => x.Name == str))
+                            return IoC.Get<ILanguageService>().Translate("XXX is already existed!", str);
+                        return "";
+                    }), defaultResponse: obj.Name, ownerViewModel: IoC.Get<MainWindowViewModel>());
+
+                    if (newTagName == null || string.IsNullOrEmpty(newTagName))
+                        return;
+
                     newTagName = TagAndKeywordEncodeHelper.RectifyTagName(newTagName);
                     if (string.IsNullOrEmpty(newTagName) || oldTagName == newTagName)
                         return;
@@ -134,7 +146,7 @@ namespace _1RM.View.ServerList
                             server.Tags.Add(newTagName);
                         }
                     }
-                    AppData.UpdateServer(protocolServerBases);
+                    IoC.Get<GlobalData>().UpdateServer(protocolServerBases);
 
 
                     // restore selected scene
@@ -150,9 +162,9 @@ namespace _1RM.View.ServerList
                     }
 
                     // restore display scene
-                    if (AppData.TagList.Any(x => x.Name == newTagName))
+                    if (IoC.Get<GlobalData>().TagList.Any(x => x.Name == newTagName))
                     {
-                        AppData.TagList.First(x => x.Name == newTagName).IsPinned = obj.IsPinned;
+                        IoC.Get<GlobalData>().TagList.First(x => x.Name == newTagName).IsPinned = obj.IsPinned;
                     }
                 });
             }
@@ -170,11 +182,11 @@ namespace _1RM.View.ServerList
                     if (o is not Tag obj)
                         return;
 
-                    foreach (var vmProtocolServer in AppData.VmItemList.ToArray())
+                    foreach (var vmProtocolServer in IoC.Get<GlobalData>().VmItemList.ToArray())
                     {
                         if (vmProtocolServer.Server.Tags.Contains(obj.Name))
                         {
-                            GlobalEventHelper.OnRequestServerConnect?.Invoke(vmProtocolServer.Id);
+                            GlobalEventHelper.OnRequestServerConnect?.Invoke(vmProtocolServer.Server, fromView: $"{nameof(MainWindowView)}");
                             Thread.Sleep(100);
                         }
                     }
@@ -195,14 +207,30 @@ namespace _1RM.View.ServerList
                         return;
 
                     var token = DateTime.Now.Ticks.ToString();
-                    foreach (var vmProtocolServer in AppData.VmItemList.ToArray())
+                    foreach (var vmProtocolServer in IoC.Get<GlobalData>().VmItemList.ToArray())
                     {
                         if (vmProtocolServer.Server.Tags.Contains(obj.Name))
                         {
-                            GlobalEventHelper.OnRequestServerConnect?.Invoke(vmProtocolServer.Id, token);
+                            GlobalEventHelper.OnRequestServerConnect?.Invoke(vmProtocolServer.Server, fromView: $"{nameof(MainWindowView)}", assignTabToken: token);
                             Thread.Sleep(100);
                         }
                     }
+                });
+            }
+        }
+
+
+
+        private RelayCommand? _cmdTagPin;
+        public RelayCommand CmdTagPin
+        {
+            get
+            {
+                return _cmdTagPin ??= new RelayCommand((o) =>
+                {
+                    if (o is not Tag obj)
+                        return;
+                    obj.IsPinned = !obj.IsPinned;
                 });
             }
         }

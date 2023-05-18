@@ -10,6 +10,7 @@ using AxMSTSCLib;
 using MSTSCLib;
 using _1RM.Model.Protocol;
 using _1RM.Service;
+using _1RM.Utils;
 using Shawn.Utils;
 using Shawn.Utils.Interface;
 using Shawn.Utils.Wpf;
@@ -69,6 +70,11 @@ namespace _1RM.View.Host.ProtocolHosts
         {
             // make sure ParentWindow is FullScreen Window
             if (ParentWindow is not FullScreenWindowView)
+            {
+                return;
+            }
+
+            if (ParentWindow is FullScreenWindowView { IsLoaded: false })
             {
                 return;
             }
@@ -202,14 +208,22 @@ namespace _1RM.View.Host.ProtocolHosts
             Debug.Assert(_rdpClient != null);
             // make sure ParentWindow is FullScreen Window
             Debug.Assert(ParentWindow != null);
-            if (ParentWindow is TabWindowBase)
+            switch (ParentWindow)
             {
-                // full-all-screen session switch to TabWindow, and click "Reconn" button, will entry this case.
-                _rdpClient.FullScreen = false;
-                IoC.Get<LocalityService>().RdpLocalityUpdate(_rdpSettings.Id.ToString(), false);
-                return;
+                case null:
+                    return;
+                case TabWindowBase:
+                {
+                    // full-all-screen session switch to TabWindow, and click "Reconn" button, will entry this case.
+                    _rdpClient!.FullScreen = false;
+                    if (_rdpSettings.IsTmpSession() == false)
+                    {
+                        IoC.Get<LocalityService>().RdpLocalityUpdate(_rdpSettings.Id, false);
+                    }
+                    return;
+                }
             }
-            
+
 
             var screenSize = this.GetScreenSizeIfRdpIsFullScreen();
 
@@ -233,6 +247,7 @@ namespace _1RM.View.Host.ProtocolHosts
                     case null:
                     case ERdpWindowResizeMode.AutoResize:
                     case ERdpWindowResizeMode.FixedFullScreen:
+                    case ERdpWindowResizeMode.StretchFullScreen:
                         SetRdpResolution((uint)screenSize.Width, (uint)screenSize.Height, true);
                         break;
                     case ERdpWindowResizeMode.Stretch:
@@ -240,7 +255,9 @@ namespace _1RM.View.Host.ProtocolHosts
                         SetRdpResolution((uint)(_rdpSettings.RdpWidth ?? 800), (uint)(_rdpSettings.RdpHeight ?? 600), true);
                         break;
                     default:
-                        throw new ArgumentOutOfRangeException();
+                        MsAppCenterHelper.Error(new ArgumentOutOfRangeException($"{_rdpSettings.RdpWindowResizeMode} is not processed!"));
+                        SetRdpResolution((uint)screenSize.Width, (uint)screenSize.Height, true);
+                        break;
                 }
             }
         }
@@ -255,7 +272,10 @@ namespace _1RM.View.Host.ProtocolHosts
 
             // !do not remove
             ParentWindowSetToWindow();
-            IoC.Get<LocalityService>().RdpLocalityUpdate(_rdpSettings.Id.ToString(), false);
+            if (_rdpSettings.IsTmpSession() == false)
+            {
+                IoC.Get<LocalityService>().RdpLocalityUpdate(_rdpSettings.Id, false);
+            }
             base.OnFullScreen2Window?.Invoke(base.ConnectionId);
         }
 

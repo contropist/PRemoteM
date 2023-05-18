@@ -5,12 +5,11 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using _1RM.Model.DAO;
 using _1RM.Model.Protocol.Base;
+using _1RM.Service.DataSource.DAO;
 using _1RM.View;
 using com.github.xiangyuecn.rsacsharp;
 using JsonKnownTypes;
-using NETCore.Encrypt;
 using Newtonsoft.Json;
 using Shawn.Utils;
 using Stylet;
@@ -33,22 +32,27 @@ namespace _1RM.Service.DataSource.Model
             };
         }
 
-        private EnumDbStatus _status = EnumDbStatus.NotConnectedYet;
+        public override string ToString()
+        {
+            return DataSourceName;
+        }
+
+        private EnumDatabaseStatus _status = EnumDatabaseStatus.NotConnectedYet;
         [JsonIgnore]
-        public EnumDbStatus Status
+        public EnumDatabaseStatus Status
         {
             get => _status;
             set
             {
-                SetAndNotifyIfChanged(ref _status, value);
-                StatueTime = DateTime.Now;
-                StatusInfo = Status == EnumDbStatus.OK ? $"{CachedProtocols.Count} servers" : Status.GetErrorInfo();
+                if (SetAndNotifyIfChanged(ref _status, value))
+                {
+                    ReconnectTime = Status != EnumDatabaseStatus.OK ? 
+                        DateTime.Now.AddSeconds(IoC.TryGet<ConfigurationService>()?.DatabaseReconnectPeriod ?? 60 * 5) 
+                        : DateTime.MinValue;
+                }
+                StatusInfo = Status == EnumDatabaseStatus.OK ? $"{CachedProtocols.Count} servers" : Status.GetErrorInfo();
             }
         }
-
-
-        [JsonIgnore]
-        public DateTime StatueTime = DateTime.MinValue;
 
 
         private string _statusInfo = "";
@@ -57,6 +61,16 @@ namespace _1RM.Service.DataSource.Model
         {
             get => _statusInfo;
             set => SetAndNotifyIfChanged(ref _statusInfo, value);
+        }
+
+        [JsonIgnore]
+        public DateTime ReconnectTime = DateTime.MinValue;
+        private string _reconnectInfo = "";
+        [JsonIgnore]
+        public string ReconnectInfo
+        {
+            get => _reconnectInfo;
+            set => SetAndNotifyIfChanged(ref _reconnectInfo, value);
         }
 
 
@@ -74,17 +88,5 @@ namespace _1RM.Service.DataSource.Model
 
         [JsonIgnore]
         public abstract string Description { get; }
-
-
-        private const string SimpleAesKey = "9ho5kUf2UVbugom7NME8ZVxFZZjavHej";
-
-        protected string SimpleEncrypt(string txt)
-        {
-            return EncryptProvider.AESEncrypt(txt, SimpleAesKey);
-        }
-        protected string SimpleDecrypt(string encryptString)
-        {
-            return EncryptProvider.AESDecrypt(encryptString, SimpleAesKey); ;
-        }
     }
 }

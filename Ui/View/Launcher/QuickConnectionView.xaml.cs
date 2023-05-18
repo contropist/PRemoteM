@@ -13,6 +13,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 using _1RM.Model;
+using _1RM.Service;
 using _1RM.View.Editor;
 using Stylet;
 
@@ -23,20 +24,15 @@ namespace _1RM.View.Launcher
     /// </summary>
     public partial class QuickConnectionView : UserControl
     {
-        private readonly IWindowManager _windowManager;
-        private readonly LauncherWindowViewModel _lvm;
-        private readonly QuickConnectionViewModel _vm;
-        public QuickConnectionView(QuickConnectionViewModel qvm, LauncherWindowViewModel lvm, IWindowManager windowManager)
+        public QuickConnectionView()
         {
-            _vm = qvm;
-            _lvm = lvm;
-            _windowManager = windowManager;
             InitializeComponent();
         }
 
         private void TbKeyWord_OnPreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (Visibility != Visibility.Visible) return;
+            if (IoC.TryGet<LauncherWindowView>()?.IsClosing != false) return;
+            if (this.DataContext is not QuickConnectionViewModel vm) return;
 
             if (TbKeyWord.IsKeyboardFocused == false)
                 TbKeyWord.Focus();
@@ -44,38 +40,84 @@ namespace _1RM.View.Launcher
             var key = e.Key;
             if (key == Key.Escape)
             {
-                _lvm.HideMe();
+                IoC.Get<LauncherWindowViewModel>().HideMe();
                 return;
             }
 
             e.Handled = true;
             switch (key)
             {
-                case Key.Tab:
-                    _lvm.ToggleQuickConnection();
-                    break;
-                case Key.Enter:
-                    OpenSessionAndHide();
-                    break;
                 default:
                     e.Handled = false;
+                    break;
+                case Key.Tab:
+                    IoC.Get<LauncherWindowViewModel>().ToggleQuickConnection();
+                    break;
+                case Key.Enter:
+                    vm.OpenConnection();
+                    break;
+
+                case Key.Down:
+                    if (vm.SelectedIndex < vm.ConnectHistory.Count - 1)
+                    {
+                        ++vm.SelectedIndex;
+                        ListBoxHistory.ScrollIntoView(ListBoxHistory.SelectedItem);
+                    }
+                    break;
+
+                case Key.Up:
+                    if (vm.SelectedIndex > 0)
+                    {
+                        --vm.SelectedIndex;
+                        ListBoxHistory.ScrollIntoView(ListBoxHistory.SelectedItem);
+                    }
+                    break;
+
+                case Key.PageUp:
+                    if (vm.SelectedIndex > 0)
+                    {
+                        vm.SelectedIndex =
+                            vm.SelectedIndex - 5 < 0 ? 0 : vm.SelectedIndex - 5;
+                        ListBoxHistory.ScrollIntoView(ListBoxHistory.SelectedItem);
+                    }
+                    break;
+
+                case Key.PageDown:
+                    if (vm.SelectedIndex < vm.ConnectHistory.Count - 1)
+                    {
+                        vm.SelectedIndex =
+                            vm.SelectedIndex + 5 > vm.ConnectHistory.Count - 1
+                                ? vm.ConnectHistory.Count - 1
+                                : vm.SelectedIndex + 5;
+                        ListBoxHistory.ScrollIntoView(ListBoxHistory.SelectedItem);
+                    }
                     break;
             }
         }
 
-
-        public void OpenSessionAndHide()
+        private void ListBoxHistory_OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            var pwdDlg = IoC.Get<PasswordPopupDialogViewModel>();
-            //pwdDlg.Result = _vm.SelectedProtocol;
-            pwdDlg.Title = "TXT: connect to " + _vm.Filter;
-            if (_windowManager.ShowDialog(pwdDlg) == true)
+            if (IoC.TryGet<LauncherWindowView>()?.IsClosing != false) return;
+            if (this.DataContext is not QuickConnectionViewModel vm) return;
+
+            if (e.ClickCount == 2)
+                vm.OpenConnection();
+        }
+
+        private void ButtonDeleteItem_OnClick(object sender, RoutedEventArgs e)
+        {
+            if (IoC.TryGet<LauncherWindowView>()?.IsClosing != false) return;
+            if (this.DataContext is not QuickConnectionViewModel vm) return;
+
+            if (sender is Button { Tag: QuickConnectionItem qci })
             {
-                MessageBox.Show($"Your Username = {pwdDlg.Result.UserName}, Pwd = {pwdDlg.Result.Password}, Others NotImplementedException!");
-                // todo open a quick connection
-                // GlobalEventHelper.OnRequestQuickConnect?.Invoke(item.Id);
+                if (vm.ConnectHistory.Contains(qci))
+                {
+                    vm.ConnectHistory.Remove(qci);
+                    IoC.Get<LocalityService>().QuickConnectionHistoryRemove(qci);
+                }
+                vm.SelectedIndex = 0;
             }
-            _lvm.HideMe();
         }
     }
 }

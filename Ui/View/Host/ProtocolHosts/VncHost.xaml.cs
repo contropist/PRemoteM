@@ -7,7 +7,9 @@ using _1RM.Model.Protocol;
 using _1RM.Model.Protocol.Base;
 using _1RM.Service;
 using _1RM.Service.DataSource;
+using _1RM.Utils;
 using Shawn.Utils.Wpf;
+using Stylet;
 using VncSharpCore;
 
 namespace _1RM.View.Host.ProtocolHosts
@@ -16,7 +18,17 @@ namespace _1RM.View.Host.ProtocolHosts
     {
         private readonly VNC _vncBase;
 
-        public VncHost(VNC vnc) : base(vnc, false)
+        public static VncHost Create(VNC protocolServer)
+        {
+            VncHost? view = null;
+            Execute.OnUIThreadSync(() =>
+            {
+                view = new VncHost(protocolServer);
+            });
+            return view!;
+        }
+
+        private VncHost(VNC vnc) : base(vnc, false)
         {
             InitializeComponent();
             GridMessageBox.Visibility = Visibility.Collapsed;
@@ -84,7 +96,7 @@ namespace _1RM.View.Host.ProtocolHosts
             GridLoading.Visibility = Visibility.Visible;
             VncFormsHost.Visibility = Visibility.Collapsed;
             Vnc.VncPort = _vncBase.GetPort();
-            Vnc.GetPassword = () => _vncBase.GetDataSource()?.DecryptOrReturnOriginalString(_vncBase.Password) ?? _vncBase.Password;
+            Vnc.GetPassword = () => UnSafeStringEncipher.DecryptOrReturnOriginalString(_vncBase.Password);
             if (Vnc.VncPort <= 0)
                 Vnc.VncPort = 5900;
             try
@@ -123,7 +135,6 @@ namespace _1RM.View.Host.ProtocolHosts
             Status = ProtocolHostStatus.Disconnected;
             if (Vnc.IsConnected)
                 Vnc.Disconnect();
-            Status = ProtocolHostStatus.Disconnected;
             base.Close();
         }
 

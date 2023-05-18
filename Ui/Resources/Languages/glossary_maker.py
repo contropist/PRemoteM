@@ -6,8 +6,9 @@ import copy
 from googletrans import Translator
 from httpcore import SyncHTTPProxy
 
-Special_Marks_in_XAML_Content = ['&', '<', '>', '\r', '\n']
-Special_Characters_in_XAML_Content = ['&amp;', '&lt;', '&gt;', '&#13;', '&#10;']
+Special_Marks_in_XAML_Content = ["&", "<", ">", "\r", "\n"]
+# Special_Characters_in_XAML_Content = ["&amp;", "&lt;", "&gt;", "&#13;", "&#10;"]
+Special_Characters_in_XAML_Content = ["&amp;", "&lt;", "&gt;", "\\r", "\\n"]
 Forbidden_Characters_in_XAML_Key = ['"', "'", *Special_Marks_in_XAML_Content]
 Forbidden_Characters_in_XAML_Key_Values = ['&quot;', '&apos;', *Special_Characters_in_XAML_Content]
 
@@ -43,9 +44,10 @@ class glossary:
     def load_csv(self, csv_file_name: str, encoding: str = 'utf-8'):
         lines = []  # [[key, english_word, a, b, c, d], [key1, w1, ...], ...]
         with open(csv_file_name, mode='r', encoding=encoding)as f:
-            reader = csv.reader(f)
+            reader = csv.reader(f, delimiter=";")
             for row in reader:
-                lines.append(row)
+                if len(row) > 0:
+                    lines.append(row)
         key_column_index = 0
         en_column_index = 1
         self.keys = [Forbidden_Characters_in_XAML_Key_convert(line[key_column_index]) for line in lines]
@@ -53,7 +55,7 @@ class glossary:
         for col in range(len(lines[0])):
             if col == key_column_index or col == en_column_index:
                 continue
-            self.columns.append([Special_Marks_to_Characters_in_XAML(line[col]) for line in lines])
+            self.columns.append([Special_Marks_to_Characters_in_XAML(line[col]) if len(line) > col else '' for line in lines])
 
     def save_csv(self, csv_file_name: str, encoding: str = 'utf-8'):
         lines = []
@@ -61,7 +63,7 @@ class glossary:
             line = [column[row] for column in self.columns]
             lines.append([self.keys[row], self.english_words[row], *line])
         with open(csv_file_name, 'w', encoding=encoding, newline='') as f:
-            writer = csv.writer(f)
+            writer = csv.writer(f, delimiter=";")
             writer.writerows(lines)
 
     def do_translate(self, translator: Translator):
@@ -72,8 +74,8 @@ class glossary:
                     continue
                 # 没有内容时才进行翻译
                 if column[row] == '':
-                    print('translating to [', column[0], ']: ', self.english_words[row])
                     txt = translator.translate(Special_Marks_to_Characters_in_XAML(self.english_words[row]), dest=column[self.ROW_LANG_CODE_GOOGLE]).text
+                    print('translating to [', column[0], ']: ', self.english_words[row], ' ---> ', txt)
                     column[row] = txt
 
     def merge_columns(self, src):
@@ -137,12 +139,23 @@ if __name__ == '__main__':
 
     g = glossary()
     g.load_csv(CSV_FILE_NAME + '.csv')
-    # g.save_csv(CSV_FILE_NAME + '.csv')
+    # make a backup
+    if os.path.exists(CSV_FILE_NAME + '_backup.csv'):
+        os.remove(CSV_FILE_NAME + '_backup.csv')
+    os.rename(CSV_FILE_NAME + '.csv', CSV_FILE_NAME + '_backup.csv')
+    g.save_csv(CSV_FILE_NAME + '.csv')
 
     http_proxy = SyncHTTPProxy((b'http', b'127.0.0.1', 1080, b''))
     proxies = {'http': http_proxy, 'https': http_proxy}
     translator = Translator(proxies=proxies)
-    # print(translator.translate('hi\r\nsun rise', dest='de').text)
+    # print(translator.translate('hi\r\nsun rise', dest='de').text
+
+    if path.exists("glossary_for_PRemoteM.csv"):
+        prm = glossary()
+        prm.load_csv("glossary_for_PRemoteM.csv")
+        g.merge_columns(prm)
+        g.save_csv(CSV_FILE_NAME + '.csv')
+
 
     # translate
     t = g.clone()

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Windows;
+using System.Windows.Controls;
 using _1RM.Model.Protocol;
 using _1RM.Model.Protocol.Base;
 using _1RM.Model.Protocol.FileTransmit;
@@ -16,7 +17,7 @@ namespace _1RM.View.Editor.Forms
             if (vm.GetType() == typeof(SFTP))
             {
                 CbUsePrivateKey.IsChecked = false;
-                if (((SFTP)vm).PrivateKey == ProtocolBase.ServerEditorDifferentOptions)
+                if (((SFTP)vm).PrivateKey == vm.ServerEditorDifferentOptions)
                 {
                     CbUsePrivateKey.IsChecked = null;
                 }
@@ -39,15 +40,16 @@ namespace _1RM.View.Editor.Forms
 
         private void CbUsePrivateKey_OnChecked(object sender, RoutedEventArgs e)
         {
-            if (CbUsePrivateKey.IsChecked == false)
+            if (sender is CheckBox cb && _vm is SFTP sftp)
             {
-                if (_vm is SFTP sftp)
+                if (cb.IsChecked == false)
+                {
                     sftp.PrivateKey = "";
-            }
-            else
-            {
-                if (_vm is SFTP sftp)
+                }
+                else
+                {
                     sftp.Password = "";
+                }
             }
         }
     }

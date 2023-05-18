@@ -1,13 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Windows.Media.Imaging;
+using _1RM.Service;
 using _1RM.Service.DataSource;
 using _1RM.Service.DataSource.Model;
 using _1RM.Utils;
+using FluentFTP.Helpers;
 using Newtonsoft.Json;
 using Shawn.Utils;
 using Shawn.Utils.Interface;
@@ -27,17 +30,13 @@ namespace _1RM.Model.Protocol.Base
     //[JsonKnownType(typeof(SFTP), nameof(SFTP))]
     public abstract class ProtocolBase : NotifyPropertyChangedBase
     {
-        [JsonIgnore] public static string ServerEditorDifferentOptions => IoC.Get<ILanguageService>().Translate("server_editor_different_options");
+        [JsonIgnore] public string ServerEditorDifferentOptions => IoC.Get<ILanguageService>().Translate("server_editor_different_options").Replace(" ", "-");
 
-        protected ProtocolBase(string protocol, string classVersion, string protocolDisplayName, string protocolDisplayNameInShort = "")
+        protected ProtocolBase(string protocol, string classVersion, string protocolDisplayName)
         {
             Protocol = protocol;
             ClassVersion = classVersion;
             ProtocolDisplayName = protocolDisplayName;
-            if (string.IsNullOrWhiteSpace(protocolDisplayNameInShort))
-                ProtocolDisplayNameInShort = ProtocolDisplayName;
-            else
-                ProtocolDisplayNameInShort = protocolDisplayNameInShort;
         }
 
         public abstract bool IsOnlyOneInstance();
@@ -50,8 +49,24 @@ namespace _1RM.Model.Protocol.Base
         [JsonIgnore]
         public string Id
         {
-            get => _id;
+            get
+            {
+                if (string.IsNullOrEmpty(_id))
+                    GenerateIdForTmpSession();
+                return _id;
+            }
             set => SetAndNotifyIfChanged(ref _id, value);
+        }
+
+        public bool IsTmpSession()
+        {
+            return _id.StartsWith("TMP_SESSION_") || string.IsNullOrEmpty(_id);
+        }
+
+        public void GenerateIdForTmpSession()
+        {
+            Debug.Assert(IsTmpSession());
+            _id = "TMP_SESSION_" + new DateTimeOffset(DateTime.Now).ToUnixTimeMilliseconds();
         }
 
         /// <summary>
@@ -63,9 +78,6 @@ namespace _1RM.Model.Protocol.Base
 
         [JsonIgnore]
         public string ProtocolDisplayName { get; }
-
-        [JsonIgnore]
-        public string ProtocolDisplayNameInShort { get; }
 
         private string _displayName = "";
         public string DisplayName
@@ -257,55 +269,122 @@ namespace _1RM.Model.Protocol.Base
         /// </summary>
         public ProtocolBase Clone()
         {
-            var clone = this.MemberwiseClone() as ProtocolBase;
+            //{
+            //    var json = ToJsonString();
+            //    var jsonClone = ItemCreateHelper.CreateFromJsonString(json);
+            //    if (jsonClone != null)
+            //    {
+            //        jsonClone.Id = this.Id;
+            //        jsonClone.DataSourceName = this.DataSourceName;
+            //        return jsonClone;
+            //    }
+            //}
+
+
+            var clone = (ProtocolBase)this.MemberwiseClone();
             Debug.Assert(clone != null);
-            clone.Tags = new List<string>(this.Tags);
+            clone!.Tags = new List<string>(this.Tags);
+            if (this is ProtocolBaseWithAddressPortUserPwd p
+                && clone is ProtocolBaseWithAddressPortUserPwd c)
+            {
+                c.AlternateCredentials = new(p.AlternateCredentials.Select(x => x.CloneMe()));
+            }
             return clone;
         }
 
-        public void RunScriptBeforeConnect()
+        private Dictionary<string, string> GetEnvironmentVariablesForScript()
         {
+            var evs = new Dictionary<string, string>
+            {
+                { "SESSION_ID", this.GetHashCode().ToString() },
+                { "SERVER_ID", this.Id },
+                { "SERVER_NAME", this.DisplayName },
+                { "SERVER_HOST", "" },
+                { "SERVER_TAGS", string.Join(",", this.Tags.ToArray()) }
+            };
+            if (this is ProtocolBaseWithAddressPort p)
+                evs["SERVER_HOST"] = $"{p.Address}:{p.Port}";
+            return evs;
+        }
+
+        public int RunScriptBeforeConnect(bool isTestRun = false)
+        {
+            int exitCode = 0;
             try
             {
                 if (!string.IsNullOrWhiteSpace(CommandBeforeConnected))
                 {
                     var tuple = WinCmdRunner.DisassembleOneLineScriptCmd(CommandBeforeConnected);
-                    WinCmdRunner.RunFile(tuple.Item1, arguments: tuple.Item2, isAsync: false, isHideWindow: HideCommandBeforeConnectedWindow);
+
+                    if (isTestRun)
+                    {
+                        if (string.IsNullOrEmpty(tuple.Item2) == false)
+                            MessageBoxHelper.Info($"We will run: '{tuple.Item1}' with parameters '{tuple.Item2}'");
+                        else
+                            MessageBoxHelper.Info($"We will run: '{CommandBeforeConnected}'");
+                    }
+
+                    exitCode = WinCmdRunner.RunFile(tuple.Item1, arguments: tuple.Item2, isAsync: false,
+                        isHideWindow: HideCommandBeforeConnectedWindow && isTestRun != true,
+                        workingDirectory: tuple.Item3,
+                        envVariables: GetEnvironmentVariablesForScript());
+
+                    if (isTestRun)
+                    {
+                        MessageBoxHelper.Info($"The exit code of the script = {exitCode}.\r\nOnce the code != 0, we will terminate your connection request.");
+                    }
                 }
             }
             catch (Exception e)
             {
+                exitCode = 1;
                 SimpleLogHelper.Error(e);
-                MessageBoxHelper.ErrorAlert(e.Message, IoC.Get<ILanguageService>().Translate("Script before connect"));
+                MessageBoxHelper.ErrorAlert("We encountered a problem while running the script: " + e.Message, IoC.Get<ILanguageService>().Translate("Script before connect"));
             }
+            return exitCode;
         }
 
-        public void RunScriptAfterDisconnected()
+        public void RunScriptAfterDisconnected(bool isTestRun = false)
         {
             try
             {
                 if (!string.IsNullOrWhiteSpace(CommandAfterDisconnected))
                 {
                     var tuple = WinCmdRunner.DisassembleOneLineScriptCmd(CommandAfterDisconnected);
-                    WinCmdRunner.RunFile(tuple.Item1, arguments: tuple.Item2, isAsync: true, isHideWindow: true);
+
+                    if (isTestRun)
+                    {
+                        if (string.IsNullOrEmpty(tuple.Item2) == false)
+                            MessageBoxHelper.Info($"We will run: '{tuple.Item1}' with parameters '{tuple.Item2}'");
+                        else
+                            MessageBoxHelper.Info($"We will run: '{CommandBeforeConnected}'");
+                    }
+
+                    var exitCode = WinCmdRunner.RunFile(tuple.Item1, arguments: tuple.Item2, isAsync: true,
+                        isHideWindow: isTestRun != true,
+                        workingDirectory: tuple.Item3,
+                        envVariables: GetEnvironmentVariablesForScript());
+
+                    if (isTestRun)
+                    {
+                        MessageBoxHelper.Info($"The exit code of the script = {exitCode}.");
+                    }
                 }
             }
             catch (Exception e)
             {
                 SimpleLogHelper.Error(e);
-                MessageBoxHelper.ErrorAlert(e.Message, IoC.Get<ILanguageService>().Translate("Script after disconnected"));
+                MessageBoxHelper.ErrorAlert("We encountered a problem while running the script: " + e.Message, IoC.Get<ILanguageService>().Translate("Script after disconnected"));
             }
         }
 
         /// <summary>
         /// run before connect, decrypt all fields
         /// </summary>
-        /// <param name="source"></param>
-        public virtual void ConnectPreprocess(DataSourceBase source)
+        public virtual void ConnectPreprocess()
         {
             var s = this;
-            source.DecryptToRamLevel(ref s);
-            source.DecryptToConnectLevel(ref s);
+            s.DecryptToConnectLevel();
         }
 
         public static List<ProtocolBase> GetAllSubInstance()
@@ -318,12 +397,12 @@ namespace _1RM.Model.Protocol.Base
         }
 
 
-        public virtual bool ThisTimeConnWithFullScreen()
+        public virtual bool IsThisTimeConnWithFullScreen()
         {
             return false;
         }
 
         [JsonIgnore]
-        public string DataSourceName = "";
+        public DataSourceBase? DataSource { get; set; }
     }
 }

@@ -1,10 +1,12 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Windows;
 using _1RM.Model;
+using _1RM.Utils;
 using Shawn.Utils;
 using Shawn.Utils.Interface;
 using Shawn.Utils.Wpf;
@@ -74,10 +76,13 @@ namespace _1RM.Service
             if (LanguageCode2Name.ContainsKey(code)) return;
             var r = GetResourceDictionaryByXamlUri(path);
             Debug.Assert(r != null);
-            Debug.Assert(r.Contains("language_name"));
-            AddLanguage(code, r["language_name"].ToString()!, r);
+            Debug.Assert(r?.Contains("language_name") == true);
+            if (r != null)
+                AddLanguage(code, r["language_name"].ToString()!, r);
         }
 
+        private static readonly string[] Special_Marks_in_XAML_Content = { "&", "<", ">", "\r", "\n" };
+        private static readonly string[] Special_Characters_in_XAML_Content = { "&amp;", "&lt;", "&gt;", "\\r", "\\n" };
         private static ResourceDictionary? GetResourceDictionaryByXamlUri(string path)
         {
             try
@@ -85,6 +90,17 @@ namespace _1RM.Service
                 var resourceDictionary = MultiLanguageHelper.LangDictFromXamlUri(new Uri(path));
                 if (resourceDictionary != null)
                 {
+                    foreach (var key in resourceDictionary.Keys)
+                    {
+                        if (resourceDictionary[key] is string val)
+                        {
+                            for (int j = 0; j < Special_Characters_in_XAML_Content.Length; j++)
+                            {
+                                val = val.Replace(Special_Characters_in_XAML_Content[j], Special_Marks_in_XAML_Content[j]);
+                            }
+                            resourceDictionary[key] = val;
+                        }
+                    }
                     return resourceDictionary;
                 }
             }
@@ -103,6 +119,17 @@ namespace _1RM.Service
                 var resourceDictionary = MultiLanguageHelper.LangDictFromXamlFile(path);
                 if (resourceDictionary != null)
                 {
+                    foreach (var key in resourceDictionary.Keys)
+                    {
+                        if (resourceDictionary[key] is string val)
+                        {
+                            for (int j = 0; j < Special_Characters_in_XAML_Content.Length; j++)
+                            {
+                                val = val.Replace(Special_Characters_in_XAML_Content[j], Special_Marks_in_XAML_Content[j]);
+                            }
+                            resourceDictionary[key] = val;
+                        }
+                    }
                     return resourceDictionary;
                 }
             }
@@ -146,12 +173,12 @@ namespace _1RM.Service
                 }
 #if DEBUG
                 var mf = string.Join(", ", missingFields);
-                MessageBox.Show($"language resource missing:\r\n {mf}", Translate("messagebox_title_error"), MessageBoxButton.OK, MessageBoxImage.Error, MessageBoxResult.None);
+                MessageBox.Show($"language resource missing:\r\n {mf}", Translate("Error"), MessageBoxButton.OK, MessageBoxImage.Error, MessageBoxResult.None);
                 File.WriteAllText("LANGUAGE_ERROR.txt", mf);
 #endif
             }
 
-            _applicationResourceDictionary?.ChangeLanguage(resource);
+            _applicationResourceDictionary.ChangeLanguage(resource);
             GlobalEventHelper.OnLanguageChanged?.Invoke();
             return true;
         }
@@ -164,17 +191,27 @@ namespace _1RM.Service
 
         public string Translate(string key)
         {
-            key = key.Trim(new[] { '\'' });
-            if (_applicationResourceDictionary.Contains(key))
-                return _applicationResourceDictionary[key].ToString() ?? key;
-
+            if (string.IsNullOrEmpty(key) || _applicationResourceDictionary == null)
+                return "";
+            else
+            {
+                string val = key;
+                key = key.Trim(new[] { '\'' });
+                if (_applicationResourceDictionary.Contains(key))
+                {
+                    val = _applicationResourceDictionary[key].ToString() ?? key;
+                }
+                else
+                {
+                    MsAppCenterHelper.Error(new Exception($"int {_languageCode}, key not found: {key}"));
 #if DEBUG
-            var tw = new StreamWriter("need translation " + _languageCode + ".txt", true);
-            tw.WriteLine(key);
-            tw.Close();
+                    var tw = new StreamWriter("need translation " + _languageCode + ".txt", true);
+                    tw.WriteLine(key);
+                    tw.Close();
 #endif
-
-            return key;
+                }
+                return val;
+            }
         }
 
         public string Translate(string key, params object[] parameters)

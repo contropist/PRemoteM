@@ -1,4 +1,4 @@
-using Shawn.Utils;
+using static Shawn.Utils.VersionHelper;
 
 namespace _1RM
 {
@@ -8,16 +8,39 @@ namespace _1RM
         public const uint Minor = 0;
         public const uint Patch = 0;
         public const uint Build = 0;
-        public const string PreRelease = "beta.01"; // e.g. "alpha" "beta.2"
+        public const string PreRelease = "beta.03"; // e.g. "alpha" "beta.2"
 
-        public static readonly VersionHelper.Version VersionData = new VersionHelper.Version(Major, Minor, Patch, Build, PreRelease);
+
+        public static readonly Version VersionData = new Version(Major, Minor, Patch, Build, PreRelease);
         public static string Version => VersionData.ToString();
 
 
-        public static readonly string[] UpdateUrls =
-        {
-            "https://github.com/1Remote/1Remote",
-            "https://github.com/1Remote/PRemoteM",
-        };
+        public static string[] UpdateCheckUrls =>
+            string.IsNullOrEmpty(PreRelease)
+                ? new[]
+                {
+                    "https://1remote.org/download/",
+                    "https://github.com/1Remote/1Remote",
+                }
+                : new[]
+                {
+                    "https://github.com/1Remote/1Remote/releases/expanded_assets/Nightly",
+                    "https://1remote.org/download/",
+                    "https://github.com/1Remote/1Remote",
+                };
+
+        public static string[] UpdatePublishUrls =>
+            string.IsNullOrEmpty(PreRelease)
+                ? new[]
+                {
+                    "https://1remote.org/download/",
+                    "https://github.com/1Remote/1Remote",
+                }
+                : new[]
+                {
+                    "https://github.com/1Remote/1Remote/releases/tag/Nightly",
+                    "https://1remote.org/download/",
+                    "https://github.com/1Remote/1Remote",
+                };
     }
 }

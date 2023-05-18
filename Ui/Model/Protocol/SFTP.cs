@@ -1,11 +1,9 @@
 ﻿using System;
-using System.Text;
 using Newtonsoft.Json;
 using _1RM.Model.Protocol.Base;
 using _1RM.Model.Protocol.FileTransmit;
 using _1RM.Model.Protocol.FileTransmit.Transmitters;
-using _1RM.Service;
-using _1RM.Service.DataSource;
+using _1RM.Utils;
 using Shawn.Utils;
 
 namespace _1RM.Model.Protocol
@@ -22,7 +20,7 @@ namespace _1RM.Model.Protocol
 
         private string _privateKey = "";
 
-        [OtherName(Name = "RM_SSH_PRIVATE_KEY_PATH")]
+        [OtherName(Name = "SSH_PRIVATE_KEY_PATH")]
         public string PrivateKey
         {
             get => _privateKey;
@@ -30,7 +28,7 @@ namespace _1RM.Model.Protocol
         }
 
         private string _startupPath = "/";
-        [OtherName(Name = "RM_STARTUP_PATH")]
+        [OtherName(Name = "STARTUP_PATH")]
         public string StartupPath
         {
             get => _startupPath;
@@ -66,7 +64,7 @@ namespace _1RM.Model.Protocol
             var hostname = this.Address;
             int port = this.GetPort();
             var username = this.UserName;
-            var password = this.GetDataSource()?.DecryptOrReturnOriginalString(this.Password) ?? this.Password;
+            var password = UnSafeStringEncipher.DecryptOrReturnOriginalString(this.Password) ?? this.Password;
             var sshKeyPath = this.PrivateKey;
             if (sshKeyPath == "")
                 return new TransmitterSFtp(hostname, port, username, password, true);
@@ -77,6 +75,26 @@ namespace _1RM.Model.Protocol
         public string GetStartupPath()
         {
             return StartupPath;
+        }
+
+
+
+        public override Credential GetCredential()
+        {
+            var c = new Credential()
+            {
+                Address = Address,
+                Port = Port,
+                Password = Password,
+                UserName = UserName,
+                PrivateKeyPath = PrivateKey,
+            };
+            return c;
+        }
+        public override void SetCredential(in Credential credential)
+        {
+            base.SetCredential(credential);
+            PrivateKey = credential.PrivateKeyPath;
         }
     }
 }

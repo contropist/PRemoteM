@@ -6,7 +6,9 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using _1RM.Service;
+using _1RM.Utils;
 using Shawn.Utils;
+using Stylet;
 
 namespace _1RM.View.Guidance
 {
@@ -20,7 +22,7 @@ namespace _1RM.View.Guidance
         {
             _languageService = languageService;
             Debug.Assert(App.ResourceDictionary != null);
-            _themeService = new ThemeService(App.ResourceDictionary, configuration.Theme);
+            _themeService = new ThemeService(App.ResourceDictionary!, configuration.Theme);
             _configuration = configuration;
 
             ProfileModeIsPortable = profileModeIsPortable;
@@ -75,7 +77,19 @@ namespace _1RM.View.Guidance
         public bool AppStartAutomatically
         {
             get => _configuration.General.AppStartAutomatically;
-            set => SetAndNotifyIfChanged(ref _configuration.General.AppStartAutomatically, value);
+            set
+            {
+                if (SetAndNotifyIfChanged(ref _configuration.General.AppStartAutomatically, value))
+                {
+                    var e = ConfigurationService.CheckSetSelfStart();
+                    if (e != null)
+                    {
+                        _configuration.General.AppStartAutomatically = false;
+                        RaisePropertyChanged();
+                        MessageBoxHelper.ErrorAlert("Can not set auto start dur to: " + e.Message + " May be you can try 'run as administrator' to fix it.");
+                    }
+                }
+            }
         }
 
         public bool AppStartMinimized

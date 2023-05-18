@@ -6,12 +6,13 @@ using System.Threading.Tasks;
 using System.Windows;
 using _1RM.Service;
 using _1RM.Utils;
+using _1RM.View.Utils;
 using Shawn.Utils;
 using Shawn.Utils.Wpf;
 
 namespace _1RM.View
 {
-    public class RequestRatingViewModel : NotifyPropertyChangedBase
+    public class RequestRatingViewModel : MaskLayer
     {
         private bool _doNotShowAgain;
 
@@ -35,8 +36,13 @@ namespace _1RM.View
                     IoC.Get<ConfigurationService>().Engagement.ConnectCount = -100;
                     if (DoNotShowAgain)
                     {
+                        MsAppCenterHelper.TraceView(nameof(RequestRatingView) + " do not show again", true);
                         IoC.Get<ConfigurationService>().Engagement.DoNotShowAgain = true;
                         IoC.Get<ConfigurationService>().Engagement.DoNotShowAgainVersionString = AppVersion.Version;
+                    }
+                    else
+                    {
+                        MsAppCenterHelper.TraceView(nameof(RequestRatingView), true);
                     }
                     IoC.Get<ConfigurationService>().Save();
 #if DEBUG

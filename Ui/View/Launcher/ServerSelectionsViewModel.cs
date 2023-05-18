@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -22,30 +23,36 @@ namespace _1RM.View.Launcher
 {
     public class ServerSelectionsViewModel : NotifyPropertyChangedBaseScreen
     {
-        public FrameworkElement GridMenuActions { get; private set; } = new Grid();
-        public TextBox TbKeyWord { get; private set; } = new TextBox();
-        private LauncherWindowViewModel? _launcherWindowViewModel;
         private readonly SolidColorBrush _highLightBrush = new SolidColorBrush(Color.FromArgb(80, 239, 242, 132));
-
-        public ServerSelectionsViewModel()
-        {
-        }
-
-        public void Init(LauncherWindowViewModel launcherWindowViewModel)
-        {
-            _launcherWindowViewModel = launcherWindowViewModel;
-        }
 
 
         protected override void OnViewLoaded()
         {
-            if (this.View is ServerSelectionsView window)
+            if (IoC.Get<LauncherWindowViewModel>().View is LauncherWindowView { IsClosing: false } window
+                && this.View is ServerSelectionsView view)
             {
-                GridMenuActions = window.GridMenuActions;
-                GridMenuActions.Focus();
-                TbKeyWord = window.TbKeyWord;
+                view.TbKeyWord.Focus();
                 CalcNoteFieldVisibility();
+
+                IoC.Get<GlobalData>().OnDataReloaded += RebuildVmServerList;
+                RebuildVmServerList();
             }
+        }
+
+        public void Show()
+        {
+            if (this.View is not ServerSelectionsView view) return;
+            if (IoC.TryGet<LauncherWindowView>()?.IsClosing != false) return;
+
+            Filter = "";
+            IoC.Get<LauncherWindowViewModel>().ServerSelectionsViewVisibility = Visibility.Visible;
+            ShowCredentials = IoC.Get<ConfigurationService>().Launcher.ShowCredentials;
+            Execute.OnUIThread(() =>
+            {
+                view.GridActionsList.Visibility = Visibility.Collapsed;
+                view.TbKeyWord.Focus();
+            });
+            CalcNoteFieldVisibility();
         }
 
         private readonly DebounceDispatcher _debounceDispatcher = new();
@@ -83,7 +90,7 @@ namespace _1RM.View.Launcher
             }
         }
 
-        private int _selectedIndex = 0;
+        private int _selectedIndex = -1;
         public int SelectedIndex
         {
             get => _selectedIndex;
@@ -111,9 +118,14 @@ namespace _1RM.View.Launcher
             get => _vmServerList;
             set
             {
-                if (SetAndNotifyIfChanged(ref _vmServerList, value))
+                SetAndNotifyIfChanged(ref _vmServerList, value);
+                if (_vmServerList.Count > 0)
                 {
                     SelectedIndex = 0;
+                }
+                else
+                {
+                    SelectedIndex = -1;
                 }
             }
         }
@@ -133,13 +145,6 @@ namespace _1RM.View.Launcher
             set => SetAndNotifyIfChanged(ref _selectedActionIndex, value);
         }
 
-        private double _gridSelectionsHeight;
-        public double GridSelectionsHeight
-        {
-            get => _gridSelectionsHeight;
-            set => SetAndNotifyIfChanged(ref _gridSelectionsHeight, value);
-        }
-
         private List<TagFilter> _tagFilters = new List<TagFilter>();
         public List<TagFilter> TagFilters
         {
@@ -148,51 +153,90 @@ namespace _1RM.View.Launcher
         }
 
 
-
+        public void AppendServer(ProtocolBaseViewModel viewModel)
+        {
+            Execute.OnUIThread(() =>
+            {
+                viewModel.PropertyChanged -= OnLastConnectTimeChanged;
+                viewModel.PropertyChanged += OnLastConnectTimeChanged;
+                viewModel.DisplayNameControl = viewModel.OrgDisplayNameControl;
+                viewModel.SubTitleControl = viewModel.OrgSubTitleControl;
+                VmServerList.Add(viewModel);
+            });
+        }
 
         public void RebuildVmServerList()
         {
+            if (this.View is not ServerSelectionsView view) return;
+            if (IoC.TryGet<LauncherWindowView>()?.IsClosing != false) return;
+
+            var selectedId = SelectedItem?.Id ?? "";
             VmServerList = new ObservableCollection<ProtocolBaseViewModel>(IoC.Get<GlobalData>().VmItemList.OrderByDescending(x => x.LastConnectTime));
+            foreach (var viewModel in VmServerList)
+            {
+                viewModel.PropertyChanged -= OnLastConnectTimeChanged;
+                viewModel.PropertyChanged += OnLastConnectTimeChanged;
+            }
+
+            if (string.IsNullOrEmpty(selectedId) == false)
+            {
+                var s = VmServerList.FirstOrDefault(x => x.Id == selectedId);
+                if (s != null)
+                    SelectedIndex = VmServerList.IndexOf(s);
+            }
 
             Execute.OnUIThread(() =>
             {
-                foreach (var vm in VmServerList)
+                foreach (var viewModel in VmServerList)
                 {
-                    vm.DisplayNameControl = vm.OrgDisplayNameControl;
-                    vm.SubTitleControl = vm.OrgSubTitleControl;
+                    viewModel.DisplayNameControl = viewModel.OrgDisplayNameControl;
+                    viewModel.SubTitleControl = viewModel.OrgSubTitleControl;
                 }
             });
+            IoC.Get<LauncherWindowViewModel>().ReSetWindowHeight();
+        }
+
+        private void OnLastConnectTimeChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(ProtocolBaseViewModel.LastConnectTime))
+            {
+                VmServerList = new ObservableCollection<ProtocolBaseViewModel>(VmServerList.OrderByDescending(x => x.LastConnectTime));
+            }
         }
 
 
-        public double ReCalcGridMainHeight(bool showGridAction)
+        public double ReCalcGridMainHeight()
         {
+            if (this.View is not ServerSelectionsView view) return LauncherWindowViewModel.MAX_WINDOW_HEIGHT;
+            if (IoC.TryGet<LauncherWindowView>()?.IsClosing != false) return LauncherWindowViewModel.MAX_WINDOW_HEIGHT;
             double ret = LauncherWindowViewModel.MAX_WINDOW_HEIGHT;
-            Execute.OnUIThread(() =>
+            // show server list
+            if (view.GridActionsList.Visibility != Visibility.Visible)
             {
-                // show server list
-                if (showGridAction == false)
-                {
-                    var tmp = LauncherWindowViewModel.LAUNCHER_SERVER_LIST_ITEM_HEIGHT * VmServerList.Count;
-                    GridSelectionsHeight = Math.Min(tmp, LauncherWindowViewModel.MAX_SELECTION_HEIGHT);
-                    ret = LauncherWindowViewModel.LAUNCHER_GRID_KEYWORD_HEIGHT + GridSelectionsHeight;
-                }
-                //// show action list
-                //else
-                //{
-                //    LauncherWindowViewModel.GridMainHeight = LauncherWindowViewModel.MaxWindowHeight;
-                //}
-            });
+                var tmp = LauncherWindowViewModel.LAUNCHER_SERVER_LIST_ITEM_HEIGHT * Math.Min(VmServerList.Count, LauncherWindowViewModel.LAUNCHER_OUTLINE_CORNER_RADIUS);
+                ret = LauncherWindowViewModel.LAUNCHER_GRID_KEYWORD_HEIGHT + tmp;
+            }
             return ret;
         }
+
 
         private string _lastKeyword = string.Empty;
         public void CalcVisibleByFilter()
         {
+            if (this.View is not ServerSelectionsView view) return;
+            if (IoC.TryGet<LauncherWindowView>()?.IsClosing != false) return;
             if (string.IsNullOrEmpty(_filter) == false && _lastKeyword == _filter) return;
+
             _lastKeyword = _filter;
 
             var keyword = _filter.Trim();
+            if (string.IsNullOrEmpty(keyword))
+            {
+                RebuildVmServerList();
+                TagFilters = new List<TagFilter>();
+                return;
+            }
+
             var tmp = TagAndKeywordEncodeHelper.DecodeKeyword(keyword);
             TagFilters = tmp.TagFilterList;
 
@@ -200,15 +244,16 @@ namespace _1RM.View.Launcher
             foreach (var vm in IoC.Get<GlobalData>().VmItemList)
             {
                 var server = vm.Server;
-                var s = TagAndKeywordEncodeHelper.MatchKeywords(server, tmp);
+                var s = TagAndKeywordEncodeHelper.MatchKeywords(server, tmp, ShowCredentials);
                 if (s.Item1 == true)
                 {
-                    App.Current.Dispatcher.Invoke(() =>
+                    Execute.OnUIThreadSync(() =>
                     {
                         if (s.Item2 == null)
                         {
                             vm.DisplayNameControl = vm.OrgDisplayNameControl;
-                            vm.SubTitleControl = vm.OrgSubTitleControl;
+                            if (ShowCredentials)
+                                vm.SubTitleControl = vm.OrgSubTitleControl;
                         }
                         else
                         {
@@ -216,7 +261,6 @@ namespace _1RM.View.Launcher
                             if (mrs.IsMatchAllKeywords)
                             {
                                 var displayName = server.DisplayName;
-                                var subTitle = server.SubTitle;
                                 var m1 = mrs.HitFlags[0];
                                 if (m1.Any(x => x == true))
                                 {
@@ -243,30 +287,34 @@ namespace _1RM.View.Launcher
                                     vm.DisplayNameControl = vm.OrgDisplayNameControl;
                                 }
 
-                                var m2 = mrs.HitFlags[1];
-                                if (m2.Any(x => x == true))
+                                if (ShowCredentials)
                                 {
-                                    var sp = new StackPanel() { Orientation = System.Windows.Controls.Orientation.Horizontal };
-                                    for (int i = 0; i < m2.Count; i++)
+                                    var subTitle = server.SubTitle;
+                                    var m2 = mrs.HitFlags[1];
+                                    if (m2.Any(x => x == true))
                                     {
-                                        if (m2[i])
-                                            sp.Children.Add(new TextBlock()
-                                            {
-                                                Text = subTitle[i].ToString(),
-                                                Background = _highLightBrush,
-                                            });
-                                        else
-                                            sp.Children.Add(new TextBlock()
-                                            {
-                                                Text = subTitle[i].ToString(),
-                                            });
-                                    }
+                                        var sp = new StackPanel() { Orientation = System.Windows.Controls.Orientation.Horizontal };
+                                        for (int i = 0; i < m2.Count; i++)
+                                        {
+                                            if (m2[i])
+                                                sp.Children.Add(new TextBlock()
+                                                {
+                                                    Text = subTitle[i].ToString(),
+                                                    Background = _highLightBrush,
+                                                });
+                                            else
+                                                sp.Children.Add(new TextBlock()
+                                                {
+                                                    Text = subTitle[i].ToString(),
+                                                });
+                                        }
 
-                                    vm.SubTitleControl = sp;
-                                }
-                                else
-                                {
-                                    vm.SubTitleControl = vm.OrgSubTitleControl;
+                                        vm.SubTitleControl = sp;
+                                    }
+                                    else
+                                    {
+                                        vm.SubTitleControl = vm.OrgSubTitleControl;
+                                    }
                                 }
                             }
                         }
@@ -275,18 +323,8 @@ namespace _1RM.View.Launcher
                 }
             }
 
-            if (string.IsNullOrEmpty(keyword) && newList.Count == 0)
-            {
-                RebuildVmServerList();
-            }
-            else
-            {
-                Execute.OnUIThread(() =>
-                {
-                    VmServerList = new ObservableCollection<ProtocolBaseViewModel>(newList.OrderByDescending(x => x.LastConnectTime));
-                });
-            }
-            _launcherWindowViewModel?.ReSetWindowHeight(false);
+            VmServerList = new ObservableCollection<ProtocolBaseViewModel>(newList.OrderByDescending(x => x.LastConnectTime));
+            IoC.Get<LauncherWindowViewModel>().ReSetWindowHeight();
         }
 
 
@@ -323,13 +361,19 @@ namespace _1RM.View.Launcher
         }
 
 
-        public Border? NoteField = null;
-
         private bool _isShowNoteFieldEnabled;
         public bool IsShowNoteFieldEnabled
         {
             get => this._isShowNoteFieldEnabled;
             set => this.SetAndNotifyIfChanged(ref _isShowNoteFieldEnabled, value);
+        }
+
+
+        private bool _showCredentials;
+        public bool ShowCredentials
+        {
+            get => _showCredentials;
+            set => SetAndNotifyIfChanged(ref _showCredentials, value);
         }
 
         private Visibility _gridNoteVisibility = Visibility.Visible;
@@ -341,47 +385,51 @@ namespace _1RM.View.Launcher
 
         public void CalcNoteFieldVisibility()
         {
-            if (_launcherWindowViewModel?.TabMode != 0)
+            if (this.View is not ServerSelectionsView view) return;
+            if (IoC.TryGet<LauncherWindowView>()?.IsClosing != false) return;
+
+            if (IoC.Get<LauncherWindowViewModel>().ServerSelectionsViewVisibility != Visibility.Visible)
             {
                 GridNoteVisibility = Visibility.Collapsed;
-                return;
+            }
+            else
+            {
+                Visibility newVisibility;
+                if (IoC.Get<ConfigurationService>().Launcher.ShowNoteFieldInLauncher == false)
+                    newVisibility = Visibility.Collapsed;
+                else if (ConverterNoteToVisibility.IsVisible(SelectedItem?.Server?.Note))
+                    newVisibility = Visibility.Visible;
+                else
+                    newVisibility = Visibility.Collapsed;
+                if (GridNoteVisibility == newVisibility) return;
+                IsShowNoteFieldEnabled = IoC.Get<ConfigurationService>().Launcher.ShowNoteFieldInLauncher == false;
+                GridNoteVisibility = newVisibility;
             }
 
-            Visibility newVisibility;
-            if (IoC.Get<ConfigurationService>().Launcher.ShowNoteFieldInLauncher == false)
-                newVisibility = Visibility.Collapsed;
-            else if (ConverterNoteToVisibility.IsVisible(SelectedItem?.Server?.Note))
-                newVisibility = Visibility.Visible;
-            else
-                newVisibility = Visibility.Collapsed;
-            if (GridNoteVisibility == newVisibility) return;
-
-            IsShowNoteFieldEnabled = IoC.Get<ConfigurationService>().Launcher.ShowNoteFieldInLauncher == false;
-            GridNoteVisibility = newVisibility;
-            if (NoteField != null)
+            Execute.OnUIThreadSync(() =>
             {
                 if (GridNoteVisibility == Visibility.Visible)
                 {
                     RaisePropertyChanged(nameof(GridNoteVisibility));
                     var sb = new Storyboard();
                     sb.AddFadeIn(0.3);
-                    sb.Begin(NoteField);
+                    sb.Begin(IoC.Get<LauncherWindowView>().NoteField);
                 }
                 else
                 {
                     var sb = new Storyboard();
                     sb.AddFadeOut(0.3);
-                    sb.Completed += (sender, args) => { RaisePropertyChanged(nameof(GridNoteVisibility)); };
-                    sb.Begin(NoteField);
+                    sb.Completed += (_, _) =>
+                    {
+                        RaisePropertyChanged(nameof(GridNoteVisibility));
+                    };
+                    sb.Begin(IoC.Get<LauncherWindowView>().NoteField);
                 }
-            }
-            else
-            {
-                RaisePropertyChanged(nameof(GridNoteVisibility));
-            }
+            });
 
-            _launcherWindowViewModel?.ReSetWindowHeight(false);
+            IoC.Get<LauncherWindowViewModel>().ReSetWindowHeight();
         }
+
         #endregion
     }
 }

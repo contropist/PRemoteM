@@ -3,13 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using _1RM.Model.DAO;
-using _1RM.Model.DAO.Dapper;
+using _1RM.Service.DataSource.DAO.Dapper;
+using _1RM.Service.DataSource.DAO;
+using _1RM.Utils;
 using Newtonsoft.Json;
 
 namespace _1RM.Service.DataSource.Model
 {
-    public class MysqlSource : DataSourceBase
+    public sealed class MysqlSource : DataSourceBase
     {
 
         private string _host = "127.0.0.1";
@@ -50,15 +51,15 @@ namespace _1RM.Service.DataSource.Model
             {
                 if (string.IsNullOrEmpty(EncryptPassword))
                     return "";
-                var t = base.SimpleDecrypt(EncryptPassword);
+                var t = UnSafeStringEncipher.SimpleDecrypt(EncryptPassword);
                 if (string.IsNullOrEmpty(t))
                     return EncryptPassword;
-                return t;
+                return t ?? "";
             }
             set
             {
-                EncryptPassword = string.IsNullOrEmpty(value) ? "" : base.SimpleEncrypt(value);
-                var t = base.SimpleDecrypt(EncryptPassword);
+                EncryptPassword = string.IsNullOrEmpty(value) ? "" : UnSafeStringEncipher.SimpleEncrypt(value);
+                var t = UnSafeStringEncipher.SimpleDecrypt(EncryptPassword);
                 RaisePropertyChanged();
             }
         }
@@ -80,15 +81,12 @@ namespace _1RM.Service.DataSource.Model
 
 
 
-        private readonly IDataBase _dataBase = new DapperDataBase();
-        public override IDataBase GetDataBase()
+        private IDatabase? _database = null;
+        public override IDatabase GetDataBase()
         {
-            return _dataBase;
-        }
-
-        public override string Database_GetPrivateKeyPath()
-        {
-            throw new NotImplementedException();
+            _database ??= new DapperDatabase(DatabaseName, DatabaseType.MySql);
+            _database.DatabaseName = DatabaseName;
+            return _database;
         }
 
         public static bool TestConnection(MysqlSource config)
@@ -98,22 +96,10 @@ namespace _1RM.Service.DataSource.Model
         public static bool TestConnection(string host, int port, string dbName, string userName, string password)
         {
             var str = DbExtensions.GetMysqlConnectionString(host, port, dbName, userName, password, 2);
-            var db = new DapperDataBase();
-            try
-            {
-                //var dbConnection = new MySqlConnection(str);
-                //dbConnection.Open();
-                db.OpenNewConnection(DatabaseType.MySql, str);
-                return db.IsConnected();
-            }
-            catch
-            {
-                return false;
-            }
-            finally
-            {
-                db.CloseConnection();
-            }
+            var db = new DapperDatabase(dbName, DatabaseType.MySql);
+            var ret = db.OpenNewConnection(str);
+            db.CloseConnection();
+            return ret.IsSuccess;
         }
     }
 }

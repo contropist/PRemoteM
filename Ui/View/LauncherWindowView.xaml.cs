@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
+using _1RM.Resources.Icons;
 using _1RM.Service;
 using _1RM.View.Host.ProtocolHosts;
 using Shawn.Utils;
@@ -24,7 +25,8 @@ namespace _1RM.View
             {
                 var myWindowHandle = new WindowInteropHelper(this).Handle;
                 var source = HwndSource.FromHwnd(myWindowHandle);
-                source?.AddHook(HookUSBDeviceRedirect);
+                source?.AddHook(HookUSBDeviceRedirect); 
+                ServerIcons.Init();
             };
         }
 
@@ -80,9 +82,9 @@ namespace _1RM.View
             }
 
             const int WM_DEVICECHANGE = 0x0219;
-            if (msg == WM_DEVICECHANGE)
+            if (IsClosing == false && msg == WM_DEVICECHANGE)
             {
-                foreach (var host in IoC.Get<SessionControlService>().ConnectionId2Hosts.Where(x => x.Value is AxMsRdpClient09Host).Select(x => x.Value))
+                foreach (var host in IoC.Get<SessionControlService>().ConnectionId2Hosts.ToArray().Where(x => x.Value is AxMsRdpClient09Host).Select(x => x.Value))
                 {
                     if (host is AxMsRdpClient09Host rdp)
                     {

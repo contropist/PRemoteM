@@ -3,14 +3,16 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Text;
 using System.Timers;
-using _1RM.Model.DAO;
-using _1RM.Model.Protocol;
 using _1RM.Model.Protocol.Base;
 using _1RM.Service;
 using _1RM.Service.DataSource;
+using _1RM.Service.DataSource.DAO;
 using _1RM.Service.DataSource.Model;
+using _1RM.Utils;
 using _1RM.View;
+using _1RM.View.Launcher;
 using Shawn.Utils;
 using Stylet;
 using ServerListPageViewModel = _1RM.View.ServerList.ServerListPageViewModel;
@@ -20,14 +22,15 @@ namespace _1RM.Model
     public class GlobalData : NotifyPropertyChangedBase
     {
         private readonly Timer _timer;
-        private bool _isTimerStopFlag = false;
+        private bool _timerStopFlag = false;
         public GlobalData(ConfigurationService configurationService)
         {
             _configurationService = configurationService;
             ConnectTimeRecorder.Init(AppPathHelper.Instance.ConnectTimeRecord);
             ReloadServerList();
 
-            _timer = new Timer(30 * 1000)
+            CheckUpdateTime = DateTime.Now.AddSeconds(_configurationService.DatabaseCheckPeriod);
+            _timer = new Timer(1000)
             {
                 AutoReset = false,
             };
@@ -35,40 +38,10 @@ namespace _1RM.Model
             _timer.Start();
         }
 
-        private void TimerOnElapsed(object? sender, ElapsedEventArgs e)
-        {
-            try
-            {
-                var mainWindowViewModel = IoC.Get<MainWindowViewModel>();
-                var listPageViewModel = IoC.Get<ServerListPageViewModel>();
-                var launcherWindowViewModel = IoC.Get<LauncherWindowViewModel>();
-                // do not reload when any selected / launcher is shown / editor view is show
-                if (mainWindowViewModel.EditorViewModel != null
-                    || listPageViewModel.ServerListItems.Any(x => x.IsSelected)
-                    || launcherWindowViewModel.View?.IsVisible == true)
-                {
-                    return;
-                }
-
-#if DEBUG
-                SimpleLogHelper.Debug("check database update.");
-#endif
-                ReloadServerList();
-            }
-            finally
-            {
-                if (_isTimerStopFlag == false && _configurationService.DatabaseCheckPeriod > 0)
-                {
-                    _timer.Interval = _configurationService.DatabaseCheckPeriod * 1000;
-                    _timer.Start();
-                }
-            }
-        }
-
         private DataSourceService? _sourceService;
         private readonly ConfigurationService _configurationService;
 
-        public void SetDbOperator(DataSourceService sourceService)
+        public void SetDataSourceService(DataSourceService sourceService)
         {
             _sourceService = sourceService;
         }
@@ -85,7 +58,7 @@ namespace _1RM.Model
 
         #region Server Data
 
-        public Action? VmItemListDataChanged;
+        public Action? OnDataReloaded;
 
         public List<ProtocolBaseViewModel> VmItemList { get; set; } = new List<ProtocolBaseViewModel>();
 
@@ -116,139 +89,484 @@ namespace _1RM.Model
             _configurationService.Save();
         }
 
-        public void ReloadServerList(bool focus = false)
+        public ProtocolBaseViewModel? GetItemById(string dataSourceName, string serverId)
         {
-            if (_sourceService == null)
-            {
-                return;
-            }
+            return VmItemList.FirstOrDefault(x => x.Server.DataSource?.DataSourceName == dataSourceName
+                                                  && x.Id == serverId);
+        }
 
 
-            var needRead = false;
-            if (focus == false)
+        /// <summary>
+        /// reload data based on `LastReadFromDataSourceMillisecondsTimestamp` and `DataSourceDataUpdateTimestamp`
+        /// return true if read data
+        /// </summary>
+        /// <param name="focus"></param>
+        public bool ReloadServerList(bool focus = false)
+        {
+            try
             {
-                needRead = _sourceService.LocalDataSource?.NeedRead() ?? false;
-                foreach (var additionalSource in _sourceService.AdditionalSources)
+                if (_sourceService == null)
                 {
-                    // 对于断线的数据源，隔一段时间后尝试重连
-                    if (additionalSource.Value.Status == EnumDbStatus.LostConnection)
+                    return false;
+                }
+
+
+                var needRead = false;
+                if (focus == false)
+                {
+                    needRead = _sourceService.LocalDataSource?.NeedRead() ?? false;
+                    foreach (var additionalSource in _sourceService.AdditionalSources)
                     {
-                        if (additionalSource.Value.StatueTime.AddMinutes(10) < DateTime.Now
-                            && additionalSource.Value.Database_OpenConnection())
+                        // 断线的数据源，除非强制读取，否则都忽略，断线的数据源在 timer 里会自动重连
+                        if (additionalSource.Value.Status != EnumDatabaseStatus.OK)
                         {
+                            if (!focus) continue;
                             additionalSource.Value.Database_SelfCheck();
                         }
-                        continue;
-                    }
 
-                    if (needRead == false)
-                    {
-                        needRead |= additionalSource.Value.NeedRead();
+                        if (needRead == false)
+                        {
+                            needRead |= additionalSource.Value.NeedRead();
+                        }
                     }
                 }
-            }
 
-            if (focus || needRead)
-            {
-                // read from db
-                VmItemList = _sourceService.GetServers(focus);
-                ConnectTimeRecorder.Cleanup();
-                ReadTagsFromServers();
-                VmItemListDataChanged?.Invoke();
-            }
-        }
-
-        public void UnselectAllServers()
-        {
-            foreach (var item in VmItemList)
-            {
-                item.IsSelected = false;
-            }
-        }
-
-        public void AddServer(ProtocolBase protocolServer, DataSourceBase dataSource)
-        {
-            dataSource.Database_InsertServer(protocolServer);
-            ReloadServerList();
-        }
-
-        public void UpdateServer(ProtocolBase protocolServer)
-        {
-            Debug.Assert(string.IsNullOrEmpty(protocolServer.Id) == false);
-            if (_sourceService == null) return;
-            var source = _sourceService.GetDataSource(protocolServer.DataSourceName);
-            if (source == null || source.IsWritable == false) return;
-            UnselectAllServers();
-            source.Database_UpdateServer(protocolServer);
-            int i = VmItemList.Count;
-            {
-                var old = VmItemList.FirstOrDefault(x => x.Id == protocolServer.Id && x.Server.DataSourceName == source.DataSourceName);
-                if (old != null
-                    && old.Server != protocolServer)
+                if (focus || needRead)
                 {
-                    i = VmItemList.IndexOf(old);
-                    VmItemList.Remove(old);
-                    VmItemList.Insert(i, new ProtocolBaseViewModel(protocolServer, source));
+                    // read from db
+                    VmItemList = _sourceService.GetServers(focus);
+                    ConnectTimeRecorder.Cleanup();
+                    ReadTagsFromServers();
+                    OnDataReloaded?.Invoke();
+
+                    return true;
+                }
+                return false;
+            }
+            finally
+            {
+            }
+        }
+
+
+
+        public Result AddServer(ProtocolBase protocolServer, DataSourceBase dataSource)
+        {
+            string info = IoC.Get<LanguageService>().Translate("We can not insert into database:");
+            StopTick();
+            if (dataSource.IsWritable == false)
+            {
+                return Result.Fail(info, protocolServer.DataSource, $"`{protocolServer.DataSource}` is readonly for you");
+            }
+            var needReload = dataSource.NeedRead();
+            var ret = dataSource.Database_InsertServer(protocolServer);
+            if (ret.IsSuccess)
+            {
+                var @new = new ProtocolBaseViewModel(protocolServer);
+                if (needReload == false)
+                {
+                    VmItemList.Add(@new);
+                    IoC.Get<ServerListPageViewModel>()?.AppendServer(@new); // invoke main list ui change
+                    IoC.Get<ServerSelectionsViewModel>()?.AppendServer(@new); // invoke launcher ui change
+
+
+                    if (dataSource != IoC.Get<DataSourceService>().LocalDataSource
+                        && IoC.Get<DataSourceService>().AdditionalSources.Select(x => x.Value.CachedProtocols.Count).Sum() <= 1)
+                    {
+                        // if is additional database and need to set up group by database name!
+                        IoC.Get<ServerListPageViewModel>().ApplySort();
+                    }
                 }
             }
 
-            ReloadServerList();
+            if (needReload)
+            {
+                ReloadServerList(focus: true);
+            }
+            else
+            {
+                ReadTagsFromServers();
+                IoC.Get<ServerListPageViewModel>().ClearSelection();
+            }
+            StartTick();
+            return ret;
         }
 
-        public void UpdateServer(IEnumerable<ProtocolBase> protocolServers)
+        public Result UpdateServer(ProtocolBase protocolServer)
         {
-            if (_sourceService == null) return;
-            var groupedServers = protocolServers.GroupBy(x => x.DataSourceName);
-            foreach (var groupedServer in groupedServers)
+            StopTick();
+            string info = IoC.Get<LanguageService>().Translate("We can not update on database:");
+            try
             {
-                var source = _sourceService.GetDataSource(groupedServer.First().DataSourceName);
-                if (source?.IsWritable == true)
-                    source.Database_UpdateServer(groupedServer);
+                Debug.Assert(protocolServer.IsTmpSession() == false);
+                var source = protocolServer.DataSource;
+                if (source == null)
+                {
+                    return Result.Fail(info, protocolServer.DataSource, $"`{protocolServer.DataSource}` is not initialized yet");
+                }
+                else if (source.IsWritable == false)
+                {
+                    return Result.Fail(info, protocolServer.DataSource, $"`{protocolServer.DataSource}` is readonly for you");
+                }
+
+                var needReload = source.NeedRead();
+                var ret = source.Database_UpdateServer(protocolServer);
+                if (ret.IsSuccess)
+                {
+                    if (needReload)
+                    {
+                        ReloadServerList();
+                    }
+                    else
+                    {
+                        // invoke main list ui change & invoke launcher ui change
+                        var old = GetItemById(source.DataSourceName, protocolServer.Id);
+                        if (old != null)
+                            old.Server = protocolServer;
+                        ReadTagsFromServers();
+                        IoC.Get<ServerListPageViewModel>().ClearSelection();
+                    }
+                }
+                return ret;
             }
-            ReloadServerList();
+            finally
+            {
+                StartTick();
+            }
         }
 
-        public void DeleteServer(ProtocolBase protocolServer)
+        public Result UpdateServer(IEnumerable<ProtocolBase> protocolServers)
         {
-            if (_sourceService == null) return;
-            Debug.Assert(string.IsNullOrEmpty(protocolServer.Id) == false);
-            if (_sourceService == null) return;
-            var source = _sourceService.GetDataSource(protocolServer.DataSourceName);
-            if (source == null || source.IsWritable == false) return;
-            if (source.Database_DeleteServer(protocolServer.Id))
+            StopTick();
+            try
             {
-                ReloadServerList();
+                var groupedServers = protocolServers.GroupBy(x => x.DataSource);
+                bool needReload = false;
+                bool isAnySuccess = false;
+                var failMsgs = new List<string>();
+                foreach (var groupedServer in groupedServers)
+                {
+                    var source = groupedServer.First().DataSource;
+                    if (source?.IsWritable == true)
+                    {
+                        needReload |= source.NeedRead();
+                        var tmp = source.Database_UpdateServer(groupedServer);
+                        if (tmp.IsSuccess)
+                        {
+                            isAnySuccess = true;
+                            if (needReload == false)
+                            {
+                                // update viewmodel
+                                foreach (var protocolServer in groupedServer)
+                                {
+                                    var old = GetItemById(source.DataSourceName, protocolServer.Id);
+                                    // invoke main list ui change & invoke launcher ui change
+                                    if (old != null)
+                                        old.Server = protocolServer;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            failMsgs.Add(tmp.ErrorInfo);
+                        }
+                    }
+                }
+
+                if (isAnySuccess)
+                {
+                    if (needReload)
+                    {
+                        ReloadServerList();
+                    }
+                    else
+                    {
+                        ReadTagsFromServers();
+                        IoC.Get<ServerListPageViewModel>().ClearSelection();
+                    }
+                }
+
+                if (failMsgs.Any())
+                {
+                    return Result.Fail(string.Join("\r\n", failMsgs));
+                }
+                else
+                {
+                    return Result.Success();
+                }
+            }
+            finally
+            {
+                StartTick();
             }
         }
 
-        public void DeleteServer(IEnumerable<ProtocolBase> protocolServers)
+        public Result DeleteServer(IEnumerable<ProtocolBase> protocolServers)
         {
-            if (_sourceService == null) return;
-            var groupedServers = protocolServers.GroupBy(x => x.DataSourceName);
-            foreach (var groupedServer in groupedServers)
+            StopTick();
+            try
             {
-                var source = _sourceService.GetDataSource(groupedServer.First().DataSourceName);
-                if (source?.IsWritable == true)
-                    source.Database_DeleteServer(groupedServer.Select(x => x.Id));
+                var groupedServers = protocolServers.GroupBy(x => x.DataSource);
+                bool needReload = false;
+                bool isAnySuccess = false;
+                var failMsgs = new List<string>();
+                foreach (var groupedServer in groupedServers)
+                {
+                    var source = groupedServer.First().DataSource;
+                    if (source?.IsWritable == true)
+                    {
+                        needReload |= source.NeedRead();
+                        var tmp = source.Database_DeleteServer(groupedServer.Select(x => x.Id));
+                        SimpleLogHelper.Debug($"DeleteServer: {string.Join('、', groupedServer.Select(x => x.Id))}, needReload = {needReload}, tmp.IsSuccess = {tmp.IsSuccess}");
+                        if (tmp.IsSuccess)
+                        {
+                            isAnySuccess = true;
+                            if (needReload == false)
+                            {
+                                // update viewmodel
+                                foreach (var protocolServer in groupedServer)
+                                {
+                                    var old = GetItemById(source.DataSourceName, protocolServer.Id);
+                                    if (old != null)
+                                    {
+                                        SimpleLogHelper.Debug($"Remote server {old.DisplayName} of `{old.DataSourceName}` removed from GlobalData");
+                                        VmItemList.Remove(old);
+                                        IoC.Get<ServerListPageViewModel>().DeleteServer(old); // invoke main list ui change
+                                        Execute.OnUIThread(() =>
+                                        {
+                                            if (IoC.Get<ServerSelectionsViewModel>().VmServerList.Contains(old))
+                                                IoC.Get<ServerSelectionsViewModel>().VmServerList.Remove(old); // invoke launcher ui change
+                                        });
+                                    }
+                                    else
+                                    {
+                                        SimpleLogHelper.Warning($"Remote server {protocolServer.DisplayName} of `{source.DataSourceName}` removed from GlobalData but not found in VmItemList");
+                                    }
+                                }
+                            }
+                        }
+                        else
+                        {
+                            failMsgs.Add(tmp.ErrorInfo);
+                        }
+                    }
+
+                }
+
+                if (isAnySuccess)
+                {
+                    if (needReload)
+                    {
+                        ReloadServerList(needReload);
+                    }
+                    else
+                    {
+                        ReadTagsFromServers();
+                        IoC.Get<ServerListPageViewModel>().ClearSelection();
+                    }
+                }
+
+                if (failMsgs.Any())
+                {
+                    return Result.Fail(string.Join("\r\n", failMsgs));
+                }
+                else
+                {
+                    return Result.Success();
+                }
             }
-            ReloadServerList();
+            catch (Exception e)
+            {
+                MsAppCenterHelper.Error(e);
+                throw;
+            }
+            finally
+            {
+                StartTick();
+            }
         }
 
         #endregion Server Data
 
         public void StopTick()
         {
-            _timer.Stop();
-            _isTimerStopFlag = true;
+            lock (this)
+            {
+                _timer.Stop();
+                _timerStopFlag = true;
+            }
         }
         public void StartTick()
         {
-            _isTimerStopFlag = false;
-            ReloadServerList();
-            if (_timer.Enabled == false && _configurationService.DatabaseCheckPeriod > 0)
+            lock (this)
             {
-                _timer.Interval = _configurationService.DatabaseCheckPeriod * 1000;
-                _timer.Start();
+                _timerStopFlag = false;
+                if (_timer.Enabled == false && _configurationService.DatabaseCheckPeriod > 0)
+                {
+                    _timer.Start();
+                }
+            }
+        }
+
+        /// <summary>
+        /// return time string like 1d 2h 3m 4s
+        /// </summary>
+        /// <param name="seconds"></param>
+        /// <returns></returns>
+        private static string GetTime(long seconds)
+        {
+            var sb = new StringBuilder();
+            if (seconds > 86400)
+            {
+                sb.Append($"{seconds / 86400}d");
+                seconds %= 86400;
+            }
+
+            if (seconds > 3600)
+            {
+                sb.Append($"{seconds / 3600}h");
+                seconds %= 3600;
+            }
+
+            if (seconds > 60)
+            {
+                sb.Append($"{seconds / 60}m");
+                seconds %= 60;
+            }
+
+            if (seconds > 0)
+            {
+                sb.Append($"{seconds}s");
+            }
+            return sb.ToString();
+        }
+
+        public DateTime CheckUpdateTime;
+        private void TimerOnElapsed(object? sender, ElapsedEventArgs e)
+        {
+            try
+            {
+                if (_sourceService == null)
+                    return;
+
+                var ds = new List<DataSourceBase>();
+                if (_sourceService.LocalDataSource != null)
+                    ds.Add(_sourceService.LocalDataSource);
+                ds.AddRange(_sourceService.AdditionalSources.Values);
+
+                var mainWindowViewModel = IoC.Get<MainWindowViewModel>();
+                var listPageViewModel = IoC.Get<ServerListPageViewModel>();
+                var launcherWindowViewModel = IoC.Get<LauncherWindowViewModel>();
+                // do not reload when any selected / launcher is shown / editor view is show
+                if (mainWindowViewModel.EditorViewModel != null
+                    || listPageViewModel.VmServerList.Any(x => x.IsSelected)
+                    || launcherWindowViewModel?.View?.IsVisible == true)
+                {
+                    var pause = IoC.Get<LanguageService>().Translate("Pause");
+                    foreach (var s in ds)
+                    {
+                        s.ReconnectInfo = pause;
+                    }
+                    return;
+                }
+
+
+                long checkUpdateEtc = 0;
+                if (CheckUpdateTime > DateTime.Now)
+                {
+                    var ts = CheckUpdateTime - DateTime.Now;
+                    checkUpdateEtc = (long)ts.TotalSeconds;
+                }
+                long minReconnectEtc = int.MaxValue;
+
+
+                var needReconnect = new List<DataSourceBase>();
+                foreach (var s in ds.Where(x => x.Status != EnumDatabaseStatus.OK))
+                {
+                    if (s.ReconnectTime > DateTime.Now)
+                    {
+                        minReconnectEtc = Math.Min((long)(s.ReconnectTime - DateTime.Now).TotalSeconds, minReconnectEtc);
+                    }
+                    else
+                    {
+                        minReconnectEtc = 0;
+                        needReconnect.Add(s);
+                    }
+                }
+
+                var minEtc = Math.Min(checkUpdateEtc, minReconnectEtc);
+
+
+                var msgUpdating = IoC.Get<LanguageService>().Translate("Updating");
+                var msgNextUpdate = IoC.Get<LanguageService>().Translate("Next update check");
+                var msg = minEtc > 0 ? $"{msgNextUpdate} {GetTime(minEtc)}" : msgUpdating;
+
+
+                var msgNextReconnect = IoC.Get<LanguageService>().Translate("Next auto reconnect");
+                var msgReconnecting = IoC.Get<LanguageService>().Translate("Reconnecting");
+                foreach (var s in ds)
+                {
+                    if (s.Status != EnumDatabaseStatus.OK)
+                    {
+                        if (s.ReconnectTime > DateTime.Now)
+                        {
+                            var seconds = (long)(s.ReconnectTime - DateTime.Now).TotalSeconds;
+                            s.ReconnectInfo = $"{msgNextReconnect} {GetTime(seconds)}";
+                        }
+                        else
+                        {
+                            s.ReconnectInfo = msgReconnecting;
+                        }
+                    }
+                    else
+                    {
+                        s.ReconnectInfo = msg;
+                    }
+                }
+
+                if (minEtc > 0 && minReconnectEtc > 0)
+                {
+                    return;
+                }
+
+                // reconnect 
+                foreach (var dataSource in needReconnect.Where(x => x.ReconnectTime < DateTime.Now))
+                {
+                    if (dataSource.Database_SelfCheck() == EnumDatabaseStatus.OK)
+                    {
+                        minEtc = 0;
+                    }
+                }
+
+                if (minEtc == 0)
+                {
+                    if (ReloadServerList())
+                    {
+                        SimpleLogHelper.Debug("check database update - reload data by timer " + _timer.GetHashCode());
+                    }
+                    else
+                    {
+                        SimpleLogHelper.Debug("check database update - no need reload by timer " + _timer.GetHashCode());
+                    }
+                }
+
+                System.Diagnostics.Process.GetCurrentProcess().MinWorkingSet = System.Diagnostics.Process.GetCurrentProcess().MinWorkingSet;
+                CheckUpdateTime = DateTime.Now.AddSeconds(_configurationService.DatabaseCheckPeriod);
+            }
+            catch (Exception ex)
+            {
+                MsAppCenterHelper.Error(ex);
+                throw;
+            }
+            finally
+            {
+                lock (this)
+                {
+                    if (_timerStopFlag == false && _configurationService.DatabaseCheckPeriod > 0)
+                    {
+                        _timer.Start();
+                    }
+                }
             }
         }
     }

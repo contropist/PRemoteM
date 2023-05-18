@@ -8,6 +8,7 @@
                         xmlns:editor="clr-namespace:_1RM.View.Editor"
                         xmlns:forms="clr-namespace:_1RM.View.Editor.Forms"
                         xmlns:protocol="clr-namespace:_1RM.Model.Protocol"
+                        xmlns:alternativeCredential="clr-namespace:_1RM.View.Editor.Forms.AlternativeCredential"
                         mc:Ignorable="d"
                         d:DataContext="{d:DesignInstance protocol:RdpApp}"
                         d:DesignHeight="1450" d:DesignWidth="800">
@@ -19,15 +20,16 @@
             <StackPanel Orientation="Horizontal">
                 <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="{DynamicResource Hostname}"></TextBlock>
                 <Grid Style="{StaticResource EditorRowGridInput}">
-                    <TextBox Text="{Binding Address,UpdateSourceTrigger=PropertyChanged}"
-                                                                  Tag="e.g. 192.168.0.101"></TextBox>
+                    <TextBox Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}"
+                             Tag="e.g. 192.168.0.101"></TextBox>
                 </Grid>
-                <TextBlock Style="{StaticResource EditorRowGridTitle}" Width="60" Text="{DynamicResource Port}"></TextBlock>
+                <TextBlock Style="{StaticResource EditorRowGridTitle}" 
+                           Width="60" Text="{DynamicResource Port}"></TextBlock>
                 <Grid Style="{StaticResource EditorRowGridInput}">
-                    <TextBox Text="{Binding Port,UpdateSourceTrigger=PropertyChanged,ValidatesOnExceptions=True,NotifyOnValidationError=True}"
-                                 MinWidth="50" HorizontalAlignment="Left"
-                                 InputMethod.IsInputMethodEnabled="False"
-                                 InputScope="Number"></TextBox>
+                    <TextBox Text="{Binding Port, UpdateSourceTrigger=PropertyChanged,ValidatesOnExceptions=True,NotifyOnValidationError=True}"
+                             MinWidth="50" HorizontalAlignment="Left"
+                             InputMethod.IsInputMethodEnabled="False"
+                             InputScope="Number"></TextBox>
                 </Grid>
             </StackPanel>
         </Grid>
@@ -36,7 +38,7 @@
             <StackPanel Orientation="Horizontal">
                 <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="{DynamicResource User}"></TextBlock>
                 <Grid Style="{StaticResource EditorRowGridInput}">
-                    <TextBox Text="{Binding UserName,UpdateSourceTrigger=PropertyChanged}"></TextBox>
+                    <TextBox Text="{Binding UserName, UpdateSourceTrigger=PropertyChanged}"></TextBox>
                 </Grid>
             </StackPanel>
         </Grid>
@@ -45,19 +47,21 @@
             <StackPanel Orientation="Horizontal">
                 <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="{DynamicResource Password}"></TextBlock>
                 <Grid Style="{StaticResource EditorRowGridInput}">
-                    <PasswordBox attachProperty:PasswordBoxAttachProperty.Password="{Binding Password,UpdateSourceTrigger=PropertyChanged,Mode=TwoWay}"/>
+                    <PasswordBox attachProperty:PasswordBoxAttachProperty.Password="{Binding Password, UpdateSourceTrigger=PropertyChanged,Mode=TwoWay}"/>
                 </Grid>
             </StackPanel>
         </Grid>
+
+        <alternativeCredential:AlternativeCredentialListControl></alternativeCredential:AlternativeCredentialListControl>
 
         <Grid Style="{StaticResource EditorRowGrid}">
             <StackPanel Orientation="Horizontal">
                 <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="{DynamicResource server_editor_remote_app_name}"></TextBlock>
                 <Grid Style="{StaticResource EditorRowGridInput}">
-                    <TextBox Text="{Binding RemoteApplicationName,UpdateSourceTrigger=PropertyChanged}"
-                                                                  Tag="{DynamicResource server_editor_remote_app_name_tag}"
-                                 ToolTip="{DynamicResource server_editor_remote_app_name_tag}"
-                                 ></TextBox>
+                    <TextBox Text="{Binding RemoteApplicationName, UpdateSourceTrigger=PropertyChanged}"
+                             Tag="{DynamicResource server_editor_remote_app_name_tag}"
+                             ToolTip="{DynamicResource server_editor_remote_app_name_tag}"
+                    ></TextBox>
                 </Grid>
             </StackPanel>
         </Grid>
@@ -66,9 +70,9 @@
             <StackPanel Orientation="Horizontal">
                 <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="{DynamicResource server_editor_remote_app_fullname}"></TextBlock>
                 <Grid Style="{StaticResource EditorRowGridInput}">
-                    <TextBox Text="{Binding RemoteApplicationProgram,UpdateSourceTrigger=PropertyChanged}"
-                                                                  Tag="{DynamicResource server_editor_remote_app_fullname_tag}"
-                                 ToolTip="{DynamicResource server_editor_remote_app_fullname_tag}"></TextBox>
+                    <TextBox Text="{Binding RemoteApplicationProgram, UpdateSourceTrigger=PropertyChanged}"
+                             Tag="{DynamicResource server_editor_remote_app_fullname_tag}"
+                             ToolTip="{DynamicResource server_editor_remote_app_fullname_tag}"></TextBox>
                 </Grid>
             </StackPanel>
         </Grid>
@@ -80,7 +84,7 @@
                     <StackPanel>
                         <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource BackgroundTextBrush}" Text="Note: You can not register a RemoteApp directly, you have to config it on the server side first, or you will get the error 'The following RemoteApp program is not in the list of authorized programs'."></TextBlock>
                         <TextBlock>
-                                <Hyperlink NavigateUri="https://github.com/1Remote/1Remote/wiki/%5BProtocol%5D-RemoteApp#how-to-use" TextDecorations="{x:Null}" controls:HyperlinkHelper.IsOpenExternal="True">
+                                <Hyperlink NavigateUri="https://1remote.github.io/usage/protocol/especial/remoteapp/" TextDecorations="{x:Null}" controls:HyperlinkHelper.IsOpenExternal="True">
                                     check how to config.
                                 </Hyperlink>
                         </TextBlock>

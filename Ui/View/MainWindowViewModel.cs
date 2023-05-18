@@ -1,28 +1,19 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Diagnostics;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Interop;
 using _1RM.Model;
-using _1RM.Model.DAO;
-using _1RM.Model.Protocol;
-using _1RM.Model.Protocol.Base;
+using _1RM.Service.DataSource.DAO;
+using _1RM.Service.DataSource.DAO.Dapper;
 using _1RM.Service;
 using _1RM.Service.DataSource;
 using _1RM.Service.DataSource.Model;
 using _1RM.Utils;
 using _1RM.View.Editor;
-using _1RM.View.Host.ProtocolHosts;
 using _1RM.View.Settings;
-using Shawn.Utils;
-using Shawn.Utils.Interface;
+using _1RM.View.Utils;
 using Shawn.Utils.Wpf;
-using Shawn.Utils.Wpf.Controls;
-using Shawn.Utils.Wpf.PageHost;
 using Stylet;
 
 namespace _1RM.View
@@ -37,7 +28,7 @@ namespace _1RM.View
         SettingsTheme,
         SettingsRunners,
     }
-    public class MainWindowViewModel : NotifyPropertyChangedBaseScreen, IViewAware
+    public class MainWindowViewModel : MaskLayerContainerScreenBase
     {
         public DataSourceService SourceService { get; }
         public ConfigurationService ConfigurationService { get; }
@@ -50,25 +41,26 @@ namespace _1RM.View
         #region Properties
 
 
-        private INotifyPropertyChanged? _topLevelViewModel;
-        public INotifyPropertyChanged? TopLevelViewModel
-        {
-            get => _topLevelViewModel;
-            set => SetAndNotifyIfChanged(ref _topLevelViewModel, value);
-        }
-
         private ServerEditorPageViewModel? _editorViewModel = null;
         public ServerEditorPageViewModel? EditorViewModel
         {
             get => _editorViewModel;
-            set => SetAndNotifyIfChanged(ref _editorViewModel, value);
+            set
+            {
+                SetAndNotifyIfChanged(ref _editorViewModel, value);
+                RaisePropertyChanged(nameof(IsShownList));
+            }
         }
 
         private bool _showAbout = false;
         public bool ShowAbout
         {
             get => _showAbout;
-            set => SetAndNotifyIfChanged(ref _showAbout, value);
+            set
+            {
+                SetAndNotifyIfChanged(ref _showAbout, value);
+                RaisePropertyChanged(nameof(IsShownList));
+            }
         }
 
         private bool _showSetting = false;
@@ -79,7 +71,8 @@ namespace _1RM.View
             {
                 if (SetAndNotifyIfChanged(ref _showSetting, value))
                 {
-                    if(_showSetting == true)
+                    RaisePropertyChanged(nameof(IsShownList));
+                    if (_showSetting == true)
                         _appData.StopTick();
                     else
                         _appData.StartTick();
@@ -94,96 +87,70 @@ namespace _1RM.View
             _appData = appData;
             SourceService = sourceService;
             ConfigurationService = configurationService;
-            ShowList();
+            ShowList(false);
         }
 
         public Action? OnMainWindowViewLoaded = null;
         protected override void OnViewLoaded()
         {
-            GlobalEventHelper.ShowProcessingRing += (visibility, msg) =>
+            base.OnViewLoaded();
+            GlobalEventHelper.OnRequestGoToServerDuplicatePage += (server, isInAnimationShow) =>
             {
-                Execute.OnUIThread(() =>
+                var source = DataSourceSelectorViewModel.SelectDataSource();
+                if (source?.IsWritable == true)
                 {
-                    if (visibility == Visibility.Visible)
-                    {
-                        var pvm = IoC.Get<ProcessingRingViewModel>();
-                        pvm.ProcessingRingMessage = msg;
-                        this.TopLevelViewModel = pvm;
-                    }
-                    else
-                    {
-                        this.TopLevelViewModel = null;
-                    }
-                });
-            };
-            GlobalEventHelper.OnRequestGoToServerDuplicatePage += (server, animation) =>
-            {
-                // select save to which source
-                DataSourceBase? source = null;
-                if (ConfigurationService.AdditionalDataSource.Any(x => x.Status == EnumDbStatus.OK))
-                {
-                    var vm = new DataSourceSelectorViewModel();
-                    if (IoC.Get<IWindowManager>().ShowDialog(vm, IoC.Get<MainWindowViewModel>()) != true)
-                        return;
-                    source = SourceService.GetDataSource(vm.SelectedSource.DataSourceName);
+                    EditorViewModel = ServerEditorPageViewModel.Duplicate(_appData, source, server);
+                    ShowMe();
                 }
-                else
-                {
-                    source = SourceService.LocalDataSource;
-                }
-                if (source == null) return;
-                if (source.IsWritable == false) return;
-                EditorViewModel = ServerEditorPageViewModel.Duplicate(_appData, source, server);
-                ShowMe();
             };
 
-            GlobalEventHelper.OnRequestGoToServerEditPage += (serverToEdit, isDuplicate, isInAnimationShow) =>
+            GlobalEventHelper.OnRequestGoToServerEditPage += (serverToEdit, isInAnimationShow) =>
             {
-                if (SourceService.LocalDataSource == null) return;
-                var server = _appData.VmItemList.FirstOrDefault(x => x.Id == serverToEdit.Id && x.DataSourceName == serverToEdit.DataSourceName)?.Server;
-                if (server == null) return;
-                if (server.GetDataSource()?.IsWritable != true) return;
+                var server = _appData.VmItemList.FirstOrDefault(x => x.Id == serverToEdit.Id && x.DataSource == serverToEdit.DataSource)?.Server;
+                if (server is not { DataSource: { IsWritable: true } }) return;
                 EditorViewModel = ServerEditorPageViewModel.Edit(_appData, server);
                 ShowMe();
             };
 
-            GlobalEventHelper.OnGoToServerAddPage += (tagNames, isInAnimationShow) =>
+            GlobalEventHelper.OnGoToServerAddPage += (tagNames, assignDataSource) =>
             {
-                // select save to which source
-                DataSourceBase? source = null;
-                if (ConfigurationService.AdditionalDataSource.Any(x => x.Status == EnumDbStatus.OK))
+                var source = assignDataSource ?? DataSourceSelectorViewModel.SelectDataSource();
+                if (source?.IsWritable == true)
                 {
-                    var vm = new DataSourceSelectorViewModel();
-                    if (IoC.Get<IWindowManager>().ShowDialog(vm) != true)
-                        return;
-                    source = SourceService.GetDataSource(vm.SelectedSource.DataSourceName);
+                    EditorViewModel = ServerEditorPageViewModel.Add(_appData, source, tagNames?.Count == 0 ? new List<string>() : new List<string>(tagNames!));
+                    ShowMe();
                 }
-                else
-                {
-                    source = SourceService.GetDataSource();
-                }
-                if (source == null) return;
-                if (source.IsWritable == false) return;
-
-                EditorViewModel = ServerEditorPageViewModel.Add(_appData, source, tagNames?.Count == 0 ? new List<string>() : new List<string>(tagNames!));
-                ShowMe();
             };
 
             GlobalEventHelper.OnRequestGoToServerMultipleEditPage += (servers, isInAnimationShow) =>
             {
-                var serverBases = servers.Where(x=>x.GetDataSource()?.IsWritable == true).ToArray();
-                if (serverBases.Length > 1)
+                var serverBases = servers.Where(x => x.DataSource is { IsWritable: true, Status: EnumDatabaseStatus.OK }).ToArray();
+                EditorViewModel = serverBases.Length switch
                 {
-                    EditorViewModel = ServerEditorPageViewModel.BuckEdit(_appData, serverBases);
-                }
-                else if (serverBases.Length == 1)
-                {
-                    EditorViewModel = ServerEditorPageViewModel.Edit(_appData, serverBases.First());
-                }
+                    > 1 => ServerEditorPageViewModel.BuckEdit(_appData, serverBases),
+                    1 => ServerEditorPageViewModel.Edit(_appData, serverBases.First()),
+                    _ => EditorViewModel
+                };
                 ShowMe();
             };
 
             OnMainWindowViewLoaded?.Invoke();
+
+            //var vm = new _1RM.View.Utils.MessageBoxPageViewModel();
+            //vm.Setup(messageBoxText: "content",
+            //    caption: "title",
+            //    icon: MessageBoxImage.Warning,
+            //    buttons: MessageBoxButton.OK,
+            //    buttonLabels: new Dictionary<MessageBoxResult, string>()
+            //    {
+            //        {MessageBoxResult.None, IoC.Get<ILanguageService>().Translate("OK")},
+            //        {MessageBoxResult.Yes, IoC.Get<ILanguageService>().Translate("OK")},
+            //        {MessageBoxResult.OK, IoC.Get<ILanguageService>().Translate("OK")},
+            //    }, onButtonClicked: () =>
+            //    {
+            //        TopLevelViewModel = null;
+            //    });
+            //TopLevelViewModel = vm;
         }
 
         protected override void OnClose()
@@ -191,18 +158,27 @@ namespace _1RM.View
             App.Close();
         }
 
-
-        public void ShowList()
+        public override void OnShowProcessingRing(long layerId, Visibility visibility, string msg)
         {
+            if (this.View is not MainWindowView { IsClosing: false } window) return;
+            base.OnShowProcessingRing(layerId, visibility, msg);
+        }
+
+
+        public void ShowList(bool clearSelection)
+        {
+            if (this.View is not MainWindowView { IsClosing: false } window) return;
             EditorViewModel = null;
             ShowAbout = false;
             ShowSetting = false;
+            if (clearSelection)
+            {
+                ServerListViewModel.ClearSelection();
+            }
         }
 
-        public bool IsShownList()
-        {
-            return EditorViewModel is null && ShowAbout == false && ShowSetting == false;
-        }
+
+        public bool IsShownList => EditorViewModel is null && ShowAbout == false && ShowSetting == false;
 
 
         #region CMD
@@ -217,9 +193,9 @@ namespace _1RM.View
                     ShowSetting = true;
                     ShowAbout = false;
                     EditorViewModel = null;
-                    if (this.View != null)
-                        ((MainWindowView)this.View).PopupMenu.IsOpen = false;
-                }, o => IsShownList());
+                    if (this.View is MainWindowView v)
+                        v.PopupMenu.IsOpen = false;
+                }, o => IsShownList);
             }
         }
 
@@ -233,9 +209,9 @@ namespace _1RM.View
                     ShowAbout = true;
                     ShowSetting = false;
                     EditorViewModel = null;
-                    if (this.View != null)
-                        ((MainWindowView)this.View).PopupMenu.IsOpen = false;
-                }, o => IsShownList());
+                    if (this.View is MainWindowView v)
+                        v.PopupMenu.IsOpen = false;
+                }, o => IsShownList);
             }
         }
 
@@ -248,11 +224,26 @@ namespace _1RM.View
                 return _cmdToggleCardList ??= new RelayCommand((o) =>
                 {
                     this.ServerListViewModel.ListPageIsCardView = !this.ServerListViewModel.ListPageIsCardView;
-                    if (this.View != null)
-                        ((MainWindowView)this.View).PopupMenu.IsOpen = false;
-                }, o => IsShownList());
+                    if (this.View is MainWindowView v)
+                        v.PopupMenu.IsOpen = false;
+                }, o => IsShownList);
             }
         }
+
+        private RelayCommand? _cmdReOrder;
+        public RelayCommand CmdReOrder
+        {
+            get
+            {
+                return _cmdReOrder ??= new RelayCommand((o) =>
+                {
+                    ServerListViewModel.CmdReOrder.Execute(o);
+                    if (this.View is MainWindowView v)
+                        v.PopupMenu.IsOpen = false;
+                }, o => IsShownList);
+            }
+        }
+
         #endregion CMD
 
 
@@ -260,12 +251,19 @@ namespace _1RM.View
 
         public void ShowMe(bool isForceActivate = false, EnumMainWindowPage? goPage = null)
         {
+            if (this.View is not MainWindowView)
+            {
+                IoC.Get<IWindowManager>().ShowWindow(this);
+                return;
+            }
+            if (this.View is not MainWindowView { IsClosing: false } window) return;
+
             if (goPage != null)
             {
                 switch (goPage)
                 {
                     case EnumMainWindowPage.List:
-                        ShowList();
+                        ShowList(false);
                         break;
                     case EnumMainWindowPage.About:
                         CmdGoAboutPage?.Execute();
@@ -283,46 +281,42 @@ namespace _1RM.View
                 }
             }
 
-            if (this.View is Window window)
+            if (window.Visibility != Visibility.Visible)
             {
-                Execute.OnUIThread(() =>
-                {
-                    if (window.WindowState == WindowState.Minimized)
-                        window.WindowState = WindowState.Normal;
-                    if (isForceActivate)
-                        HideMe();
-                    window.Show();
-                    window.ShowInTaskbar = true;
-                    window.Topmost = true;
-                    window.Activate();
-                    window.Topmost = false;
-                    window.Focus();
-                });
+                MsAppCenterHelper.TraceView(nameof(MainWindowView), true);
             }
-            else
+            Execute.OnUIThread(() =>
             {
-                Execute.OnUIThread(() =>
-                {
-                    IoC.Get<IWindowManager>().ShowWindow(this);
-                });
-            }
+                if (window.WindowState == WindowState.Minimized)
+                    window.WindowState = WindowState.Normal;
+                if (isForceActivate)
+                    HideMe();
+                window.Show();
+                window.ShowInTaskbar = true;
+                window.Topmost = true;
+                window.Activate();
+                window.Topmost = false;
+                window.Focus();
+            });
         }
 
         public void HideMe()
         {
+            if (this.View is not MainWindowView { IsClosing: false } window) return;
             if (Shawn.Utils.ConsoleManager.HasConsole)
                 Shawn.Utils.ConsoleManager.Hide();
-            if (this.View is Window window)
+            if (window.Visibility == Visibility.Visible)
             {
-                Execute.OnUIThread(() =>
-                {
-                    window.ShowInTaskbar = false;
-                    window.Hide();
-                    window.Visibility = Visibility.Hidden;
-                    // After startup and initalizing our application and when closing our window and minimize the application to tray we free memory with the following line:
-                    System.Diagnostics.Process.GetCurrentProcess().MinWorkingSet = System.Diagnostics.Process.GetCurrentProcess().MinWorkingSet;
-                });
+                MsAppCenterHelper.TraceView(nameof(MainWindowView), false);
             }
+            Execute.OnUIThread(() =>
+            {
+                window.ShowInTaskbar = false;
+                window.Hide();
+                window.Visibility = Visibility.Hidden;
+                // After startup and initalizing our application and when closing our window and minimize the application to tray we free memory with the following line:
+                System.Diagnostics.Process.GetCurrentProcess().MinWorkingSet = System.Diagnostics.Process.GetCurrentProcess().MinWorkingSet;
+            });
         }
 
         private RelayCommand? _cmdExit;
@@ -332,7 +326,7 @@ namespace _1RM.View
             {
                 return _cmdExit ??= new RelayCommand((o) =>
                 {
-                    this.RequestClose();
+                    App.Close();
                 });
             }
         }
@@ -369,7 +363,8 @@ namespace _1RM.View
                     {
                         if (_mainFilterString == MainFilterString)
                         {
-                            GlobalEventHelper.OnFilterChanged?.Invoke(MainFilterString);
+                            // MainFilterString changed -> refresh view source -> calc visible in `ServerListItemSource_OnFilter`
+                            ServerListViewModel.RefreshCollectionViewSource();
                         }
                     });
                 }

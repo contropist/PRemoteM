@@ -5,9 +5,11 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using _1RM.Model;
 using _1RM.Model.Protocol.Base;
+using _1RM.Service.DataSource;
 using Shawn.Utils;
 using Shawn.Utils.Wpf;
 using Shawn.Utils.Wpf.Controls;
+using Stylet;
 
 namespace _1RM.Controls.NoteDisplay
 {
@@ -18,15 +20,18 @@ namespace _1RM.Controls.NoteDisplay
                 new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault, OnServerChanged));
         private static void OnServerChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
-            var server1 = e.NewValue as ProtocolBase;
-            var server0 = e.OldValue as ProtocolBase;
             if (d is NoteDisplayAndEditor control)
             {
                 control.EndEdit();
-                if (server0 != null)
+                if (e.OldValue is ProtocolBase server0)
+                {
                     server0.PropertyChanged -= control.ServerOnPropertyChanged;
-                if (server1 != null)
+                }
+                if (e.NewValue is ProtocolBase server1)
+                {
                     server1.PropertyChanged += control.ServerOnPropertyChanged;
+                    control.EditEnable = control.EditEnable && server1.DataSource?.IsWritable == true;
+                }
             }
         }
 
@@ -48,6 +53,7 @@ namespace _1RM.Controls.NoteDisplay
         public static readonly DependencyProperty CommandOnCloseRequestProperty = DependencyProperty.Register(
             "CommandOnCloseRequest", typeof(RelayCommand), typeof(NoteDisplayAndEditor), new FrameworkPropertyMetadata(default(RelayCommand), FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
 
+
         public RelayCommand CommandOnCloseRequest
         {
             get => (RelayCommand)GetValue(CommandOnCloseRequestProperty);
@@ -55,7 +61,24 @@ namespace _1RM.Controls.NoteDisplay
         }
         
         public bool CloseEnable { get; set; }
-        public bool EditEnable { get; set; }
+
+        private bool _editEnable;
+        public bool EditEnable
+        {
+            get => _editEnable;
+            set
+            {
+                _editEnable = value;
+                if (IsLoaded)
+                {
+                    Execute.OnUIThreadSync(() =>
+                    {
+                        ButtonEdit.IsEnabled = EditEnable;
+                        ButtonEdit.Visibility = EditEnable ? Visibility.Visible : Visibility.Collapsed;
+                    });
+                }
+            }
+        }
 
         public NoteDisplayAndEditor()
         {
@@ -122,8 +145,8 @@ namespace _1RM.Controls.NoteDisplay
             {
                 Server.Note = TbMarkdown.Text.Trim();
                 IoC.Get<GlobalData>().UpdateServer(Server);
-                EndEdit();
             }
+            EndEdit();
         }
 
         private void ButtonCancelEdit_OnClick(object sender, RoutedEventArgs e)
@@ -143,6 +166,16 @@ namespace _1RM.Controls.NoteDisplay
         }
 
         private void TbMarkdown_OnMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            e.Handled = true;
+        }
+
+        private void Ignore_OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+        }
+
+        private void Ignore_OnPreviewMouseMove(object sender, MouseEventArgs e)
         {
             e.Handled = true;
         }

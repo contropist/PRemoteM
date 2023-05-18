@@ -1,8 +1,14 @@
-﻿using System.Timers;
-using System.Windows.Input;
+﻿using System;
+using System.Linq;
+using System.Security.Policy;
+using System.Text.RegularExpressions;
+using System.Timers;
 using _1RM.Service;
+using _1RM.View.Utils;
 using Shawn.Utils;
 using Shawn.Utils.Wpf;
+using Shawn.Utils.Wpf.Controls;
+using Stylet;
 
 namespace _1RM.View
 {
@@ -12,7 +18,10 @@ namespace _1RM.View
 
         public AboutPageViewModel()
         {
-            var checker = new VersionHelper(AppVersion.VersionData, null, AppVersion.UpdateUrls);
+            var checker = new VersionHelper(AppVersion.VersionData,
+                AppVersion.UpdateCheckUrls,
+                AppVersion.UpdatePublishUrls,
+                customCheckMethod: CustomCheckMethod);
             checker.OnNewVersionRelease += OnNewVersionRelease;
             _checkUpdateTimer = new Timer()
             {
@@ -26,9 +35,30 @@ namespace _1RM.View
                 checker.CheckUpdateAsync();
             };
             checker.CheckUpdateAsync();
+        }
 
+        private static VersionHelper.CheckUpdateResult CustomCheckMethod(string html, string publishUrl, VersionHelper.Version currentVersion, VersionHelper.Version? ignoreVersion)
+        {
+            var ret = VersionHelper.DefaultCheckMethod(html, publishUrl, currentVersion, ignoreVersion);
+            if (ret.NewerPublished)
+                return ret;
 
-            CurrentVersion = AppVersion.Version;
+            var mc = Regex.Matches(html, @".?1remote-([\d|\.]*.*)-net6", RegexOptions.IgnoreCase);
+            if (mc.Count > 0)
+            {
+                var versionString = mc[mc.Count - 1].Groups[1].Value;
+                var releasedVersion = VersionHelper.Version.FromString(versionString);
+                if (ignoreVersion is not null)
+                {
+                    if (releasedVersion <= ignoreVersion)
+                    {
+                        return VersionHelper.CheckUpdateResult.False();
+                    }
+                }
+                if (releasedVersion > currentVersion)
+                    return new VersionHelper.CheckUpdateResult(true, versionString, publishUrl, versionString.FirstOrDefault() == '!' || versionString.LastOrDefault() == '!');
+            }
+            return VersionHelper.CheckUpdateResult.False();
         }
 
         ~AboutPageViewModel()
@@ -37,7 +67,7 @@ namespace _1RM.View
             _checkUpdateTimer?.Dispose();
         }
 
-        public string CurrentVersion { get; }
+        public string CurrentVersion => AppVersion.Version;
 
 
         private string _newVersion = "";
@@ -55,10 +85,27 @@ namespace _1RM.View
             set => SetAndNotifyIfChanged(ref _newVersionUrl, value);
         }
 
-        private void OnNewVersionRelease(string version, string url)
+        private bool _isBreakingNewVersion;
+        public bool IsBreakingNewVersion
         {
-            this.NewVersion = version;
-            this.NewVersionUrl = url;
+            get => _isBreakingNewVersion;
+            set => SetAndNotifyIfChanged(ref _isBreakingNewVersion, value);
+        }
+
+        private void OnNewVersionRelease(VersionHelper.CheckUpdateResult result)
+        {
+            this.NewVersion = result.NewerVersion;
+            this.NewVersionUrl = result.NewerUrl;
+            this.IsBreakingNewVersion = result.NewerHasBreakChange;
+            var v = IoC.Get<ConfigurationService>().Engagement.BreakingChangeAlertVersion;
+            if (this.IsBreakingNewVersion
+                && VersionHelper.Version.FromString(result.NewerVersion) > v)
+            {
+                Execute.OnUIThreadSync(() =>
+                {
+                    IoC.Get<IWindowManager>().ShowDialog(IoC.Get<BreakingChangeUpdateViewModel>());
+                });
+            }
         }
 
 
@@ -69,17 +116,46 @@ namespace _1RM.View
             {
                 return _cmdClose ??= new RelayCommand((o) =>
                 {
-                    IoC.Get<MainWindowViewModel>().ShowList();
+                    IoC.Get<MainWindowViewModel>().ShowList(false);
                 });
             }
         }
 
-        //public void SupportText_OnMouseRightButtonDown(object sender, MouseButtonEventArgs e)
-        //{
-        //    if (e.ClickCount == 3)
-        //    {
-        //        ConsoleManager.Toggle();
-        //    }
-        //}
+        private RelayCommand? _cmdUpdate;
+        public RelayCommand CmdUpdate
+        {
+            get
+            {
+                return _cmdUpdate ??= new RelayCommand((o) =>
+                {
+                    if (IsBreakingNewVersion)
+                    {
+                        MaskLayerController.ShowProcessingRing();
+                        IoC.Get<IWindowManager>().ShowDialog(IoC.Get<BreakingChangeUpdateViewModel>(), ownerViewModel: IoC.Get<MainWindowViewModel>());
+                        MaskLayerController.HideMask();
+                    }
+                    else
+                    {
+#if FOR_MICROSOFT_STORE_ONLY
+                        HyperlinkHelper.OpenUriBySystem("ms-windows-store://review/?productid=9PNMNF92JNFP");
+#else
+                        HyperlinkHelper.OpenUriBySystem(NewVersionUrl);
+#endif
+                    }
+                });
+            }
+        }
+
+        private RelayCommand? _cmdConsoleToggle;
+        public RelayCommand CmdConsoleToggle
+        {
+            get
+            {
+                return _cmdConsoleToggle ??= new RelayCommand((o) =>
+                {
+                    ConsoleManager.Toggle();
+                });
+            }
+        }
     }
 }

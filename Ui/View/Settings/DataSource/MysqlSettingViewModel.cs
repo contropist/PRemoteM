@@ -1,24 +1,15 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.IO;
 using System.Linq;
-using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using _1RM.Model;
-using _1RM.Service;
-using _1RM.Service.DataSource;
 using _1RM.Service.DataSource.Model;
 using _1RM.Utils;
+using _1RM.View.Utils;
 using Shawn.Utils.Interface;
 using Shawn.Utils.Wpf;
-using Stylet;
 
 namespace _1RM.View.Settings.DataSource
 {
-    public class MysqlSettingViewModel : NotifyPropertyChangedBaseScreen
+    public class MysqlSettingViewModel : MaskLayerContainerScreenBase
     {
         private readonly MysqlSource? _orgMysqlConfig = null;
         public MysqlSource New = new MysqlSource();
@@ -38,44 +29,10 @@ namespace _1RM.View.Settings.DataSource
             }
         }
 
-        ~MysqlSettingViewModel()
-        {
-        }
-
-
-        protected override void OnViewLoaded()
-        {
-            GlobalEventHelper.ShowProcessingRing += ShowProcessingRing;
-        }
-
         protected override void OnClose()
         {
-            GlobalEventHelper.ShowProcessingRing -= ShowProcessingRing;
+            base.OnClose();
             New.Database_CloseConnection();
-        }
-
-        private INotifyPropertyChanged? _topLevelViewModel;
-        public INotifyPropertyChanged? TopLevelViewModel
-        {
-            get => _topLevelViewModel;
-            set => SetAndNotifyIfChanged(ref _topLevelViewModel, value);
-        }
-
-        private void ShowProcessingRing(Visibility visibility, string msg)
-        {
-            Execute.OnUIThread(() =>
-            {
-                if (visibility == Visibility.Visible)
-                {
-                    var pvm = IoC.Get<ProcessingRingViewModel>();
-                    pvm.ProcessingRingMessage = msg;
-                    this.TopLevelViewModel = pvm;
-                }
-                else
-                {
-                    this.TopLevelViewModel = null;
-                }
-            });
         }
 
 
@@ -89,8 +46,8 @@ namespace _1RM.View.Settings.DataSource
                 {
                     if (string.IsNullOrWhiteSpace(_name))
                         throw new ArgumentException(IoC.Get<ILanguageService>().Translate("Can not be empty!"));
-                    if (_dataSourceViewModel.SourceConfigs.Any(x => x != _orgMysqlConfig && string.Equals(x.DataSourceName, _name, StringComparison.CurrentCultureIgnoreCase)))
-                        throw new ArgumentException(IoC.Get<ILanguageService>().Translate("{0} is existed!", _name));
+                    if (_dataSourceViewModel.SourceConfigs.Any(x => x != _orgMysqlConfig && string.Equals(x.DataSourceName.Trim(), _name.Trim(), StringComparison.CurrentCultureIgnoreCase)))
+                        throw new ArgumentException(IoC.Get<ILanguageService>().Translate("XXX is already existed!", _name));
                 }
             }
         }
@@ -148,6 +105,13 @@ namespace _1RM.View.Settings.DataSource
             {
                 return _cmdSave ??= new RelayCommand((o) =>
                 {
+                    //bool anyDifferent = (Name != _orgMysqlConfig?.DataSourceName
+                    //                    || Host != _orgMysqlConfig?.Host
+                    //                    || Port != _orgMysqlConfig?.Port.ToString()
+                    //                    || DatabaseName != _orgMysqlConfig?.DatabaseName
+                    //                    || UserName != _orgMysqlConfig?.UserName
+                    //                    || Password != _orgMysqlConfig?.Password
+                    //    );
                     if (_orgMysqlConfig != null)
                     {
                         _orgMysqlConfig.DataSourceName = Name.Trim();
@@ -179,13 +143,6 @@ namespace _1RM.View.Settings.DataSource
                          && string.IsNullOrWhiteSpace(DatabaseName) == false
                          && string.IsNullOrWhiteSpace(UserName) == false
                          && string.IsNullOrWhiteSpace(Password) == false
-                         && (Name != _orgMysqlConfig?.DataSourceName
-                            || Host != _orgMysqlConfig?.Host
-                            || Port != _orgMysqlConfig?.Port.ToString()
-                            || DatabaseName != _orgMysqlConfig?.DatabaseName
-                            || UserName != _orgMysqlConfig?.UserName
-                            || Password != _orgMysqlConfig?.Password
-                            )
                         ));
             }
         }
@@ -215,35 +172,34 @@ namespace _1RM.View.Settings.DataSource
                 {
                     Task.Factory.StartNew(() =>
                     {
+                        MaskLayerController.ShowProcessingRing(assignLayerContainer: this);
                         try
                         {
-                            GlobalEventHelper.ShowProcessingRing?.Invoke(Visibility.Visible, IoC.Get<ILanguageService>().Translate("system_options_data_security_info_data_processing"));
-
                             var config = new MysqlSource()
                             {
-                                DataSourceName = Name,
-                                Host = Host,
+                                DataSourceName = Name.Trim(),
+                                Host = Host.Trim(),
                                 Port = int.Parse(_port),
-                                DatabaseName = DatabaseName,
+                                DatabaseName = DatabaseName.Trim(),
                                 UserName = UserName,
                                 Password = Password
                             };
                             if (MysqlSource.TestConnection(config))
                             {
-                                MessageBoxHelper.Info(IoC.Get<ILanguageService>().Translate("Success!"));
+                                MessageBoxHelper.Info(IoC.Get<ILanguageService>().Translate("Success!"), ownerViewModel: this);
                             }
                             else
                             {
-                                MessageBoxHelper.Info(IoC.Get<ILanguageService>().Translate("Failed!"));
+                                MessageBoxHelper.Info(IoC.Get<ILanguageService>().Translate("Failed!"), ownerViewModel: this);
                             }
                         }
                         catch (Exception e)
                         {
-                            MessageBoxHelper.ErrorAlert(e.Message);
+                            MessageBoxHelper.ErrorAlert(e.Message, ownerViewModel: this);
                         }
                         finally
                         {
-                            GlobalEventHelper.ShowProcessingRing?.Invoke(Visibility.Collapsed, "");
+                            MaskLayerController.HideMask(this);
                         }
                     });
                 });
